@@ -1,94 +1,179 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300..800;1,300..800&family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Token set adapted from Langfuse's application theme.
+ *
+ * Three things carry the whole look and are worth stating explicitly:
+ *   1. Greys are pure neutral (hue 0, saturation 0). Never blue-tinted.
+ *   2. Body text sits at 70% grey in dark mode, not white. Full contrast is
+ *      spent only on the few things that matter.
+ *   3. The header is DARKER than the page, and the writing surface is darker
+ *      still. Depth comes from that inversion plus hairline borders — never
+ *      from shadows or blur.
+ */
+
 @layer base {
   :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 6%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 6%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --radius: 0.75rem;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --foreground-tertiary: 215 12% 62%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --card: 0 0% 100%;
+    --popover: 0 0% 100%;
+    --header: 210 40% 98%;
+    --surface-code: 0 0% 92%;
+
+    --border: 214.3 31.8% 91.4%;
+    --border-contrast: 214.3 20% 80%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 243 75.4% 58.6%;
+
+    /* Inverted by design: the primary action is near-black on light, and
+       near-white on dark. */
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 220 8.9% 46.1%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --link: 246 40% 50%;
+
+    /* Status chips: a tinted ground with a saturated foreground. Used small. */
+    --light-green: oklch(95% 0.052 163.051 / 0.7);
+    --dark-green: oklch(59.6% 0.145 163.225);
+    --light-yellow: oklch(97.3% 0.071 103.193 / 0.7);
+    --dark-yellow: oklch(47.6% 0.114 61.907);
+    --light-red: oklch(93.6% 0.032 17.717 / 0.7);
+    --dark-red: oklch(63.7% 0.237 25.331);
+    --light-violet: 251 91% 95.5%;
+    --dark-violet: 262 72% 54%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 70%;
+    --foreground-tertiary: 0 0% 40%;
+
+    --muted: 0 0% 11.6%;
+    --muted-foreground: 0 0% 54%;
+
+    --card: 0 0% 7.5%;
+    --popover: 0 0% 12%;
+    --header: 0 0% 2%;
+    --surface-code: 0 0% 2.3%;
+
+    --border: 0 0% 15%;
+    --border-contrast: 0 0% 26%;
+    --input: 0 0% 18%;
+    --ring: 246 55% 70%;
+
+    --primary: 0 0% 90%;
+    --primary-foreground: 0 0% 3.5%;
+
+    --secondary: 0 0% 11.6%;
+    --secondary-foreground: 0 0% 88%;
+
+    --accent: 0 0% 18%;
+    --accent-foreground: 0 0% 91%;
+
+    --destructive: 0 78.7% 63.1%;
+    --destructive-foreground: 0 0% 100%;
+
+    --link: 246 55% 70%;
+
+    --light-green: oklch(37.8% 0.077 168.94 / 0.7);
+    --dark-green: oklch(76.5% 0.177 163.223);
+    --light-yellow: oklch(55.4% 0.135 66.442 / 0.4);
+    --dark-yellow: oklch(79.5% 0.184 86.047);
+    --light-red: oklch(39.6% 0.141 25.723 / 0.7);
+    --dark-red: oklch(57.7% 0.245 27.325);
+    --light-violet: 258 40% 16%;
+    --dark-violet: 255 92% 76%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    /* Langfuse ships no webfont: the UI reads as native tooling, and there is
+       no render-blocking request on a page whose whole point is being fast. */
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji',
+      'Segoe UI Emoji';
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-size: 0.9rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: hsl(var(--ring) / 0.3);
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
   }
 }
 
-body {
-  color: #f3f4f6;
-  background-color: #030712;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
+@layer components {
+  /* The rule that separates every region. Hairline, never a shadow. */
+  .hairline-t {
+    border-top: 1px solid hsl(var(--border));
+  }
+  .hairline-b {
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  /* Small tinted status chip — the only place saturated color is allowed. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-xs;
+  }
 }
 
-/* Monospace font utility class */
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
-}
-
-/* Custom Sleek Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(3, 7, 18, 0.8);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: hsl(var(--border-contrast));
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: hsl(var(--foreground-tertiary));
 }
 
-/* Radial Mesh Background Patterns */
-.bg-radial-glow {
-  background-image: 
-    radial-gradient(at 50% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 60%),
-    radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%);
-}
-
-.bg-editor-grid {
-  background-size: 32px 32px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-}
-
-/* Glassmorphism panel helper */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glass-panel-hover {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.glass-panel-hover:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), 0 0 20px 0 rgba(59, 130, 246, 0.1);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

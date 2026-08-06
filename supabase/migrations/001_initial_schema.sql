@@ -1,4 +1,8 @@
--- ClipSync Initial Database Schema & RLS Setup
+-- ClipSync Initial Database Schema
+--
+-- Tables, indexes and TTL helper only. Access control lives in
+-- 002_lockdown.sql: the browser never talks to Postgres directly, so no role
+-- other than service_role gets any privilege here.
 
 -- 1. Enable pgcrypto for UUID generation
 create extension if not exists "pgcrypto";
@@ -26,7 +30,7 @@ create table if not exists public.attachments (
 );
 
 -- 4. Performance & Lookup Indexes
-create index if not exists idx_rooms_slug on public.rooms(slug);
+-- (no idx_rooms_slug: the UNIQUE constraint on slug already provides one)
 create index if not exists idx_attachments_room_id on public.attachments(room_id);
 create index if not exists idx_rooms_last_seen on public.rooms(last_seen_at);
 
@@ -45,7 +49,10 @@ create trigger set_rooms_updated_at
   for each row
   execute function public.update_updated_at_column();
 
--- 6. Cleanup function for rooms inactive for > 7 days (TTL)
+-- 6. Cleanup helper for rooms inactive for > 7 days (TTL).
+--
+-- Note: this only removes database rows. Storage objects are purged by
+-- /api/cron/cleanup, which is the endpoint the scheduler should actually call.
 create or replace function public.delete_expired_rooms()
 returns integer as $$
 declare
@@ -57,57 +64,7 @@ begin
   get diagnostics deleted_count = row_count;
   return deleted_count;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer
+   set search_path = public;
 
--- 7. Enable Row Level Security (RLS)
-alter table public.rooms enable row level security;
-alter table public.attachments enable row level security;
-
--- Drop existing policies if re-running
-drop policy if exists "Allow public read access to rooms" on public.rooms;
-drop policy if exists "Allow public insert access to rooms" on public.rooms;
-drop policy if exists "Allow public update access to rooms" on public.rooms;
-drop policy if exists "Allow public delete access to rooms" on public.rooms;
-
-drop policy if exists "Allow public select attachments" on public.attachments;
-drop policy if exists "Allow public insert attachments" on public.attachments;
-drop policy if exists "Allow public delete attachments" on public.attachments;
-
--- RLS Policies
-create policy "Allow public read access to rooms"
-  on public.rooms for select
-  using (true);
-
-create policy "Allow public insert access to rooms"
-  on public.rooms for insert
-  with check (true);
-
-create policy "Allow public update access to rooms"
-  on public.rooms for update
-  using (true);
-
-create policy "Allow public delete access to rooms"
-  on public.rooms for delete
-  using (true);
-
-create policy "Allow public select attachments"
-  on public.attachments for select
-  using (true);
-
-create policy "Allow public insert attachments"
-  on public.attachments for insert
-  with check (true);
-
-create policy "Allow public delete attachments"
-  on public.attachments for delete
-  using (true);
-
--- 8. Add tables to Supabase Realtime publication
-begin;
-  -- Drop publication table membership if already added to avoid errors
-  alter publication supabase_realtime add table public.rooms;
-  alter publication supabase_realtime add table public.attachments;
-exception when others then
-  -- In case publication or table exists, ignore duplicate add error
-  null;
-end;
+revoke all on function public.delete_expired_rooms() from public, anon, authenticated;

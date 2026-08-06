@@ -1,76 +1,65 @@
 import { Metadata } from 'next';
-import { createAdminClient } from '@/lib/supabase/server';
+import { headers } from 'next/headers';
+import { notFound, redirect } from 'next/navigation';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
+import { getOrCreateRoom, listAttachments, touchRoom } from '@/lib/rooms';
+import { hasRoomAccess } from '@/lib/room-auth';
+import { normalizeSlug, isValidSlug } from '@/lib/slug';
+import { rateLimit } from '@/lib/rate-limit';
+import { toPublicRoom } from '@/lib/types';
 import { TextEditor } from '@/components/room/TextEditor';
+import { RoomLockScreen } from '@/components/room/RoomLockScreen';
 import { SupabaseSetupNotice } from '@/components/ui/SupabaseSetupNotice';
-import { Room, Attachment } from '@/lib/types';
 
 export const metadata: Metadata = {
   title: 'ClipSync Room',
-  robots: {
-    index: false,
-    follow: false,
-  },
+  robots: { index: false, follow: false },
 };
 
-export const revalidate = 0;
+export const dynamic = 'force-dynamic';
 
-export default async function RoomPage({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  const slug = params.slug.toLowerCase().trim();
+const VISIT_LIMIT = 60;
+const VISIT_WINDOW_MS = 60_000;
+
+export default async function RoomPage({ params }: { params: { slug: string } }) {
+  const slug = normalizeSlug(params.slug);
+  if (!isValidSlug(slug)) notFound();
+  // One room per canonical spelling, so `/r/Quiet-Fox` and `/r/quiet-fox`
+  // cannot end up as two separate rows.
+  if (slug !== params.slug) redirect(`/r/${slug}`);
 
   if (!isSupabaseConfigured()) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 bg-radial-glow">
+      <div className="flex min-h-screen items-center justify-center p-4">
         <SupabaseSetupNotice />
       </div>
     );
   }
 
-  const supabase = createAdminClient();
-
-  // Fetch or auto-create room
-  let { data: roomData } = await supabase
-    .from('rooms')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
-
-  if (!roomData) {
-    const { data: newRoom } = await supabase
-      .from('rooms')
-      .insert([{ slug, content: '' }])
-      .select('*')
-      .single();
-    roomData = newRoom;
+  // Visiting an unknown URL creates a room, so the entry point needs a cap.
+  const ip = headers().get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  if (!rateLimit(`visit:${ip}`, VISIT_LIMIT, VISIT_WINDOW_MS).ok) {
+    throw new Error('Quá nhiều yêu cầu, vui lòng thử lại sau ít phút.');
   }
 
-  // Fetch linked attachments
-  const { data: rawAttachments } = await supabase
-    .from('attachments')
-    .select('*')
-    .eq('room_id', roomData?.id)
-    .order('created_at', { ascending: false });
+  const record = await getOrCreateRoom(slug);
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const attachments: Attachment[] = (rawAttachments || []).map((att) => ({
-    ...att,
-    public_url: `${supabaseUrl}/storage/v1/object/public/clipsync-attachments/${att.storage_path}`,
-  }));
+  // The gate lives here, before any content is fetched — the previous version
+  // rendered the full room into HTML and only hid it client-side.
+  if (record.pin_hash && !hasRoomAccess(slug, record.pin_hash)) {
+    return <RoomLockScreen slug={slug} />;
+  }
 
-  const room: Room = {
-    id: roomData.id,
-    slug: roomData.slug,
-    pin_hash: roomData.pin_hash,
-    hasPin: !!roomData.pin_hash,
-    content: roomData.content || '',
-    created_at: roomData.created_at,
-    updated_at: roomData.updated_at,
-    last_seen_at: roomData.last_seen_at,
-  };
+  const [attachments] = await Promise.all([
+    listAttachments(record.id, slug),
+    touchRoom(record.id),
+  ]);
 
-  return <TextEditor initialRoom={room} initialAttachments={attachments} slug={slug} />;
+  return (
+    <TextEditor
+      initialRoom={toPublicRoom(record)}
+      initialAttachments={attachments}
+      slug={slug}
+    />
+  );
 }

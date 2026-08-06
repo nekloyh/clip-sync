@@ -2,36 +2,26 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import {
-  Copy,
-  Check,
-  Lock,
-  Unlock,
-  Trash2,
-  Share2,
-  Users,
-  Loader2,
-  Sparkles,
-  ShieldCheck,
-} from 'lucide-react';
+import { Check, Copy, Link2, Lock, Trash2, Unlock } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { Button } from '@/components/ui/Button';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { Wordmark } from '@/components/ui/Wordmark';
 
 interface EditorHeaderProps {
   slug: string;
-  onlineCount: number;
-  saveStatus: 'saving' | 'saved' | 'idle' | 'error';
-  lastSavedAt: string | null;
   hasPin: boolean;
   onCopyAllText: () => void;
   onOpenPinModal: () => void;
   onDeleteRoom: () => void;
 }
 
+/**
+ * Identity and actions only. Live state lives in the status rail at the bottom
+ * of the buffer, so the eye has one place to check rather than two.
+ */
 export function EditorHeader({
   slug,
-  onlineCount,
-  saveStatus,
-  lastSavedAt,
   hasPin,
   onCopyAllText,
   onOpenPinModal,
@@ -40,126 +30,82 @@ export function EditorHeader({
   const [copiedLink, setCopiedLink] = useState(false);
   const { showToast } = useToast();
 
-  const handleCopyLink = () => {
-    const fullUrl = window.location.href;
-    navigator.clipboard.writeText(fullUrl);
-    setCopiedLink(true);
-    showToast('Đã sao chép đường dẫn phòng!', 'success');
-    setTimeout(() => setCopiedLink(false), 2000);
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopiedLink(true);
+      showToast('Đã chép link phòng', 'success');
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      showToast('Trình duyệt chặn truy cập clipboard', 'error');
+    }
   };
 
   return (
-    <header className="h-14 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between gap-3 z-30 shrink-0 select-none">
-      {/* Left section: Branding & Slug Badge */}
-      <div className="flex items-center gap-3.5 min-w-0">
+    <header className="hairline-b flex h-11 shrink-0 items-center justify-between gap-3 bg-header px-3 sm:px-4">
+      <div className="flex min-w-0 items-center gap-3">
         <Link
           href="/"
-          className="flex items-center gap-2 font-extrabold text-white tracking-tight hover:opacity-90 transition-opacity"
+          className="rounded-md text-foreground transition-opacity hover:opacity-70"
+          aria-label="Về trang chủ"
         >
-          <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-          </div>
-          <span className="bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent text-sm hidden md:inline">
-            ClipSync
-          </span>
+          <Wordmark showText={false} className="sm:hidden" />
+          <Wordmark className="hidden sm:inline-flex" />
         </Link>
 
-        <div className="h-4 w-px bg-white/10 hidden sm:block" />
+        <span className="h-4 w-px bg-border" />
 
-        {/* Room Slug Pill */}
-        <div className="flex items-center gap-2 bg-slate-900/90 border border-white/10 rounded-xl px-3 py-1 min-w-0 shadow-inner">
-          <span className="text-xs text-slate-500 font-mono hidden sm:inline">/r/</span>
-          <span className="text-xs font-mono font-semibold text-blue-300 truncate max-w-[110px] sm:max-w-[180px]">
-            {slug}
-          </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="hidden font-mono text-xs text-foreground-tertiary sm:inline">/r/</span>
+          <span className="truncate font-mono text-xs text-foreground">{slug}</span>
           <button
             onClick={handleCopyLink}
-            className="text-slate-400 hover:text-white p-1 rounded-md hover:bg-white/5 transition-colors"
-            title="Sao chép đường dẫn phòng"
+            className="shrink-0 rounded-sm p-1 text-foreground-tertiary transition-colors hover:bg-muted hover:text-foreground"
+            title="Chép link phòng"
+            aria-label="Chép link phòng"
           >
             {copiedLink ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <Check className="h-3.5 w-3.5 text-[var(--dark-green)]" />
             ) : (
-              <Share2 className="w-3.5 h-3.5" />
+              <Link2 className="h-3.5 w-3.5" />
             )}
           </button>
         </div>
       </div>
 
-      {/* Center section: Presence & Save Status */}
-      <div className="flex items-center gap-3.5 text-xs font-mono">
-        {/* Presence Badge */}
-        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full font-medium shadow-sm">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-          </span>
-          <Users className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{onlineCount} online</span>
-        </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="outline" size="sm" onClick={onCopyAllText}>
+          <Copy className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Chép văn bản</span>
+        </Button>
 
-        {/* Save Status Badge */}
-        <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/60 border border-white/5 text-slate-400">
-          {saveStatus === 'saving' && (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
-              <span className="text-blue-400 font-medium">Đang lưu...</span>
-            </>
-          )}
-          {saveStatus === 'saved' && (
-            <span className="text-slate-400">
-              Đã lưu {lastSavedAt ? `lúc ${lastSavedAt}` : ''}
-            </span>
-          )}
-          {saveStatus === 'error' && (
-            <span className="text-rose-400 font-medium">Lỗi lưu tự động</span>
-          )}
-        </div>
-      </div>
-
-      {/* Right section: Action Buttons */}
-      <div className="flex items-center gap-2">
-        {/* Copy All Text Button */}
-        <button
-          onClick={onCopyAllText}
-          className="flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-medium text-xs px-3.5 py-1.5 rounded-xl transition-all shadow-md shadow-blue-600/20 active:scale-95"
-          title="Copy toàn bộ văn bản (Ctrl+A+C)"
-        >
-          <Copy className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Copy toàn bộ text</span>
-        </button>
-
-        {/* PIN Protection Button */}
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={onOpenPinModal}
-          className={`p-1.5 sm:px-3 sm:py-1.5 rounded-xl border text-xs font-medium transition-all flex items-center gap-1.5 active:scale-95 ${
-            hasPin
-              ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-              : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
-          }`}
-          title={hasPin ? 'Phòng có PIN bảo vệ' : 'Đặt mã PIN bảo vệ'}
+          title={hasPin ? 'Phòng đang khóa PIN' : 'Đặt mã PIN'}
         >
           {hasPin ? (
-            <>
-              <Lock className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">PIN On</span>
-            </>
+            <Lock className="h-3.5 w-3.5 text-[var(--dark-yellow)]" />
           ) : (
-            <>
-              <Unlock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Đặt PIN</span>
-            </>
+            <Unlock className="h-3.5 w-3.5" />
           )}
-        </button>
+          <span className="hidden md:inline">{hasPin ? 'Đã khóa' : 'Đặt PIN'}</span>
+        </Button>
 
-        {/* Delete Room Button */}
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onDeleteRoom}
-          className="p-1.5 sm:p-2 rounded-xl bg-slate-900 border border-white/10 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all active:scale-95"
-          title="Xóa phòng này ngay"
+          title="Xóa phòng"
+          aria-label="Xóa phòng"
+          className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
         >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+
+        <span className="mx-1 hidden h-4 w-px bg-border sm:block" />
+        <ThemeToggle />
       </div>
     </header>
   );

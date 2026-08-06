@@ -2,234 +2,224 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Sparkles,
-  ArrowRight,
-  Plus,
-  LogIn,
-  Shield,
-  Zap,
-  RefreshCw,
-  Image as ImageIcon,
-  Copy,
-  Clock,
-  Smartphone,
-  Laptop,
-} from 'lucide-react';
-import { generateRandomSlug } from '@/lib/slug';
+import { ArrowRight, Loader2, ClipboardPaste, ImageDown, Timer } from 'lucide-react';
+import { normalizeSlug, isValidSlug } from '@/lib/slug';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { SupabaseSetupNotice } from '@/components/ui/SupabaseSetupNotice';
+import { useToast } from '@/components/ui/Toast';
+import { Button } from '@/components/ui/Button';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { Wordmark } from '@/components/ui/Wordmark';
+import { StatusChip, Dot } from '@/components/ui/StatusChip';
+
+const FEATURES = [
+  {
+    icon: ClipboardPaste,
+    title: 'Dán rồi quên',
+    body: 'Gõ hoặc dán vào ô văn bản. Nội dung tự lưu sau 500ms và hiện trên mọi thiết bị đang mở cùng URL.',
+  },
+  {
+    icon: ImageDown,
+    title: 'Ảnh đi kèm văn bản',
+    body: 'Ctrl+V ảnh chụp màn hình thẳng vào phòng, tối đa 20 ảnh và 5MB mỗi ảnh. Copy lại ra clipboard bằng một cú nhấp.',
+  },
+  {
+    icon: Timer,
+    title: 'Tự dọn',
+    body: 'Phòng không đụng tới trong 7 ngày sẽ bị xóa cùng toàn bộ ảnh. Đặt PIN 4–6 số nếu cần khóa sớm hơn.',
+  },
+];
 
 export default function HomePage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [joinSlug, setJoinSlug] = useState('');
   const [loadingCreate, setLoadingCreate] = useState(false);
   const [loadingJoin, setLoadingJoin] = useState(false);
 
   const handleCreateRoom = async () => {
     setLoadingCreate(true);
-    const newSlug = generateRandomSlug();
     try {
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: newSlug }),
+        body: '{}',
       });
-      const data = await res.json();
-      const targetSlug = data.slug || newSlug;
-      router.push(`/r/${targetSlug}`);
-    } catch {
-      router.push(`/r/${newSlug}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.slug) throw new Error(data.error || 'Không tạo được phòng');
+      router.push(`/r/${data.slug}`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Không tạo được phòng', 'error');
+      setLoadingCreate(false);
     }
   };
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleaned = joinSlug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    if (!cleaned) return;
+    const cleaned = normalizeSlug(joinSlug);
+    if (!isValidSlug(cleaned)) {
+      showToast('Mã phòng cần ít nhất 3 ký tự: chữ thường, số hoặc gạch ngang', 'error');
+      return;
+    }
     setLoadingJoin(true);
     router.push(`/r/${cleaned}`);
   };
 
   return (
-    <div className="min-h-screen bg-radial-glow bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-8 relative overflow-hidden">
-      {/* Background Decorative Mesh Grids */}
-      <div className="absolute inset-0 bg-editor-grid opacity-30 pointer-events-none" />
-
-      {/* Top Navbar */}
-      <header className="max-w-6xl w-full mx-auto py-4 flex items-center justify-between z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 p-0.5 shadow-lg shadow-blue-500/20">
-            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-blue-400" />
-            </div>
+    <div className="flex min-h-screen flex-col">
+      <header className="hairline-b sticky top-0 z-30 bg-header">
+        <div className="mx-auto flex h-12 w-full max-w-5xl items-center justify-between px-4 sm:px-6">
+          <Wordmark />
+          <div className="flex items-center gap-1">
+            <a
+              href="https://github.com/nekloyh/clip-sync"
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Mã nguồn
+            </a>
+            <ThemeToggle />
           </div>
-          <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-            ClipSync
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[11px] font-mono text-blue-300">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
-            Realtime Engine Active
-          </span>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <main className="max-w-3xl w-full mx-auto my-auto z-10 py-12 flex flex-col items-center">
-        {/* Pill Announcement */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/80 border border-white/10 backdrop-blur-md text-xs text-slate-300 mb-6 shadow-xl">
-          <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold uppercase tracking-wider">
-            Mới
-          </span>
-          <span>Dán ảnh Ctrl+V trực tiếp • Không cần đăng ký</span>
-        </div>
-
-        {/* Hero Title & Subtitle */}
-        <h1 className="text-4xl sm:text-6xl font-extrabold text-center tracking-tight leading-[1.1] mb-5">
-          Notepad dùng chung{' '}
-          <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-emerald-400 bg-clip-text text-transparent">
-            siêu tốc
-          </span>{' '}
-          giữa các thiết bị.
-        </h1>
-        <p className="text-slate-400 text-base sm:text-lg text-center max-w-xl leading-relaxed mb-10">
-          Chuyển qua lại văn bản, link, đoạn code và ảnh chụp màn hình giữa Laptop, PC và Điện thoại trong chưa đầy 1 giây qua URL ngẫu nhiên.
-        </p>
-
-        {!isSupabaseConfigured() && <SupabaseSetupNotice />}
-
-        {/* Main Action Glass Card */}
-        <div className="w-full glass-panel glass-panel-hover rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 border border-white/10">
-          {/* Create Room Button */}
-          <div>
-            <button
-              onClick={handleCreateRoom}
-              disabled={loadingCreate}
-              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-base shadow-xl shadow-blue-600/25 hover:shadow-blue-500/40 transition-all duration-300 flex items-center justify-center gap-3 group relative overflow-hidden"
-            >
-              {loadingCreate ? (
-                <>
-                  <RefreshCw className="w-5 h-5 animate-spin" />
-                  <span>Đang khởi tạo không gian...</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="w-5 h-5 transition-transform group-hover:scale-125" />
-                  <span>Tạo phòng mới ngay</span>
-                  <ArrowRight className="w-5 h-5 text-blue-200 transition-transform group-hover:translate-x-1.5" />
-                </>
-              )}
-            </button>
-            <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2.5 px-1 font-mono">
-              <span>Tự động sinh URL dạng <code className="text-blue-400">quiet-fox-4821</code></span>
-              <span className="hidden sm:inline text-slate-600">Bảo mật RLS + SSL</span>
-            </div>
+      {/* Centred in whatever height is left, so a short viewport and a tall one
+          both put the hero at the optical middle instead of stranding it. */}
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center px-4 sm:px-6">
+        {!isSupabaseConfigured() && (
+          <div className="py-8">
+            <SupabaseSetupNotice />
           </div>
+        )}
 
-          {/* Divider */}
-          <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">
-              Hoặc nhập mã phòng có sẵn
-            </span>
-            <div className="flex-1 h-px bg-white/10" />
-          </div>
-
-          {/* Join Room Form */}
-          <form onSubmit={handleJoinRoom} className="flex gap-2.5">
-            <div className="relative flex-1">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-mono text-sm select-none">
-                /r/
-              </span>
-              <input
-                type="text"
-                value={joinSlug}
-                onChange={(e) => setJoinSlug(e.target.value)}
-                placeholder="quiet-fox-4821..."
-                className="w-full pl-11 pr-4 py-3.5 bg-slate-950/80 border border-white/10 rounded-xl text-white font-mono text-sm placeholder:text-slate-600 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loadingJoin || !joinSlug.trim()}
-              className="px-6 py-3.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-medium text-sm disabled:opacity-40 transition-all flex items-center gap-2 shrink-0 border border-white/10"
-            >
-              {loadingJoin ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <span>Vào phòng</span>
-                  <LogIn className="w-4 h-4 text-blue-400" />
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-
-        {/* Feature Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full mt-10">
-          <div className="glass-panel rounded-2xl p-4 flex flex-col items-center text-center">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-2.5">
-              <Zap className="w-4 h-4 text-blue-400" />
-            </div>
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wide">Đồng bộ &lt; 1 giây</h3>
-            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-              Realtime 2 chiều bằng Supabase Websocket. Không mất con trỏ khi gõ.
+        <div className="grid gap-10 py-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center lg:gap-14">
+          {/* Left: the pitch, kept to one claim and one instruction. */}
+          <div className="animate-slide-up">
+            <p className="mb-3 font-mono text-xs uppercase tracking-widest text-foreground-tertiary">
+              Clipboard dùng chung
             </p>
-          </div>
-
-          <div className="glass-panel rounded-2xl p-4 flex flex-col items-center text-center">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-2.5">
-              <ImageIcon className="w-4 h-4 text-indigo-400" />
-            </div>
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wide">Dán ảnh (Ctrl+V)</h3>
-            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-              Paste hoặc kéo thả bất kỳ đâu. Xem full lightbox, copy binary vào clipboard.
+            <h1 className="text-3xl font-semibold leading-tight tracking-tight text-foreground">
+              Dán vào một URL.
+              <br />
+              Mở URL đó ở máy khác.
+            </h1>
+            <p className="mt-4 max-w-md text-sm text-muted-foreground">
+              Văn bản, đoạn code và ảnh chụp màn hình đi giữa laptop, PC và điện thoại qua một
+              đường link. Không tài khoản, không cài đặt.
             </p>
-          </div>
 
-          <div className="glass-panel rounded-2xl p-4 flex flex-col items-center text-center">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-2.5">
-              <Shield className="w-4 h-4 text-emerald-400" />
+            <div className="mt-8 max-w-md space-y-4">
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handleCreateRoom}
+                disabled={loadingCreate}
+                className="w-full"
+              >
+                {loadingCreate ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Đang tạo phòng
+                  </>
+                ) : (
+                  <>
+                    Tạo phòng mới
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </>
+                )}
+              </Button>
+
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-border" />
+                <span className="font-mono text-xs text-foreground-tertiary">hoặc</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+
+              <form onSubmit={handleJoinRoom} className="flex gap-2">
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 select-none font-mono text-sm text-foreground-tertiary">
+                    /r/
+                  </span>
+                  <input
+                    type="text"
+                    value={joinSlug}
+                    onChange={(e) => setJoinSlug(e.target.value)}
+                    placeholder="quiet-fox-h7k2mq9d"
+                    aria-label="Mã phòng"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 font-mono text-sm text-foreground placeholder:text-foreground-tertiary focus:border-ring focus:outline-none"
+                  />
+                </div>
+                <Button type="submit" size="lg" disabled={loadingJoin || !joinSlug.trim()}>
+                  {loadingJoin ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Vào phòng'}
+                </Button>
+              </form>
             </div>
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wide">Bảo mật & Tự hủy</h3>
-            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-              Đặt PIN 4-6 số tùy chọn. Dữ liệu và ảnh tự động xóa sạch sau 7 ngày.
-            </p>
           </div>
-        </div>
 
-        {/* Workflow Devices Visual */}
-        <div className="flex items-center gap-6 text-slate-500 text-xs font-mono mt-12">
-          <div className="flex items-center gap-2">
-            <Laptop className="w-4 h-4 text-blue-400" />
-            <span>Laptop</span>
-          </div>
-          <span className="text-blue-500">↔</span>
-          <div className="flex items-center gap-2">
-            <Laptop className="w-4 h-4 text-indigo-400" />
-            <span>PC</span>
-          </div>
-          <span className="text-indigo-500">↔</span>
-          <div className="flex items-center gap-2">
-            <Smartphone className="w-4 h-4 text-emerald-400" />
-            <span>Mobile</span>
-          </div>
+          {/* Right: a specimen of the room itself, at rest. It is the product,
+              so it does the arguing instead of a graphic. */}
+          <RoomSpecimen />
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="max-w-6xl w-full mx-auto pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 z-10 font-mono">
-        <div>ClipSync • Designed for Power Users</div>
-        <div className="flex items-center gap-4">
-          <span>No-index Secured</span>
-          <span>•</span>
-          <span>Next.js App Router & Supabase</span>
+      <section className="hairline-t">
+        <div className="mx-auto grid w-full max-w-5xl grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          {FEATURES.map(({ icon: Icon, title, body }) => (
+            <div key={title} className="px-4 py-8 sm:px-6">
+              <Icon className="mb-3 h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <h2 className="mb-1.5 text-sm font-semibold text-foreground">{title}</h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <footer className="hairline-t">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 px-4 py-5 font-mono text-xs text-foreground-tertiary sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <span>ClipSync</span>
+          <span>Next.js · Supabase · noindex</span>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * Static, and deliberately truthful: the chrome, the buffer and the status rail
+ * are the same three parts a real room has, in the same order.
+ */
+function RoomSpecimen() {
+  return (
+    <div className="animate-fade-in overflow-hidden rounded-lg border border-border bg-card">
+      <div className="hairline-b flex h-9 items-center justify-between bg-header px-3">
+        <div className="flex items-center gap-2 font-mono text-xs">
+          <span className="text-foreground-tertiary">/r/</span>
+          <span className="text-foreground">quiet-fox-h7k2mq9d</span>
+        </div>
+        {/* Neutral here on purpose: green is reserved for a room that is
+            genuinely live, so the specimen must not outshout it. */}
+        <StatusChip tone="neutral">
+          <Dot />2 thiết bị
+        </StatusChip>
+      </div>
+
+      <div className="bg-surface-code px-4 py-5 font-mono text-sm leading-relaxed">
+        <p className="text-foreground">ssh deploy@10.0.4.19 -p 2202</p>
+        <p className="text-muted-foreground">TOKEN=sk-live-8f2c...b41d</p>
+        <p className="text-foreground">
+          kubectl -n staging rollout undo deploy/api
+          <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-[2px] bg-foreground/70" />
+        </p>
+      </div>
+
+      <div className="hairline-t flex items-center justify-between bg-header px-3 py-2 font-mono text-xs text-foreground-tertiary">
+        <span>3 dòng · 6 từ</span>
+        <span>Đã lưu 14:22:07</span>
+      </div>
     </div>
   );
 }

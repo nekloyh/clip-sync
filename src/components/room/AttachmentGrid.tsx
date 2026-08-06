@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Attachment } from '@/lib/types';
-import { Copy, Download, Trash2, Maximize2, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Copy, Download, Trash2, Maximize2, Loader2 } from 'lucide-react';
 import { ImageLightbox } from './ImageLightbox';
 import { useToast } from '@/components/ui/Toast';
 
@@ -22,171 +22,134 @@ export function AttachmentGrid({
   const { showToast } = useToast();
 
   const handleCopyImage = async (att: Attachment) => {
+    let objectUrl: string | null = null;
     try {
-      if (!att.public_url) return;
-      const response = await fetch(att.public_url);
+      const response = await fetch(att.url);
+      if (!response.ok) throw new Error('fetch failed');
       const blob = await response.blob();
 
-      // Safari/Firefox compatibility check for ClipboardItem png conversion
+      // Only PNG is universally accepted by the async clipboard API, so
+      // anything else goes through a canvas. Same-origin now, so the canvas
+      // is never tainted.
       let pngBlob = blob;
       if (blob.type !== 'image/png') {
+        objectUrl = URL.createObjectURL(blob);
         const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = URL.createObjectURL(blob);
-        await new Promise((resolve) => (img.onload = resolve));
+        img.src = objectUrl;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error('decode failed'));
+        });
 
         const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0);
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d')?.drawImage(img, 0, 0);
 
-        pngBlob = await new Promise<Blob>((resolve) =>
-          canvas.toBlob((b) => resolve(b || blob), 'image/png')
+        pngBlob = await new Promise<Blob>((resolve, reject) =>
+          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), 'image/png')
         );
       }
 
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          [pngBlob.type]: pngBlob,
-        }),
-      ]);
-
-      showToast('Đã chép hình ảnh vào clipboard!', 'success');
-    } catch (err: any) {
-      console.error(err);
+      await navigator.clipboard.write([new ClipboardItem({ [pngBlob.type]: pngBlob })]);
+      showToast('Đã chép ảnh vào clipboard', 'success');
+    } catch (err) {
+      console.error('[clipsync] copy image failed', err);
       try {
-        await navigator.clipboard.writeText(att.public_url || '');
-        showToast('Đã chép đường dẫn hình ảnh!', 'info');
+        await navigator.clipboard.writeText(new URL(att.url, window.location.origin).toString());
+        showToast('Đã chép link ảnh', 'info');
       } catch {
-        showToast('Không thể copy ảnh trên trình duyệt này', 'error');
+        showToast('Trình duyệt này không chép được ảnh', 'error');
       }
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     }
   };
 
   const handleDownloadImage = (att: Attachment) => {
-    if (!att.public_url) return;
     const a = document.createElement('a');
-    a.href = att.public_url;
+    a.href = att.url;
     a.download = att.filename || 'clipsync-image.png';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    showToast('Đang tải ảnh xuống...', 'info');
   };
 
   const handleDelete = async (att: Attachment) => {
-    if (confirm('Bạn có chắc chắn muốn xóa hình ảnh này?')) {
-      setDeletingId(att.id);
-      try {
-        await onDeleteAttachment(att.id);
-        if (selectedImage?.id === att.id) {
-          setSelectedImage(null);
-        }
-        showToast('Đã xóa ảnh thành công', 'success');
-      } catch (err: any) {
-        showToast(err.message || 'Xóa ảnh thất bại', 'error');
-      } finally {
-        setDeletingId(null);
-      }
+    if (!confirm('Xóa ảnh này khỏi phòng?')) return;
+
+    setDeletingId(att.id);
+    try {
+      await onDeleteAttachment(att.id);
+      if (selectedImage?.id === att.id) setSelectedImage(null);
+      showToast('Đã xóa ảnh', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Xóa ảnh thất bại', 'error');
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  if (attachments.length === 0 && !uploading) {
-    return null;
-  }
+  if (attachments.length === 0 && !uploading) return null;
 
   return (
     <>
-      <div className="w-full bg-slate-950/90 border-t border-white/10 p-4 sm:p-5 backdrop-blur-xl z-20">
-        <div className="flex items-center justify-between mb-3.5 px-1 select-none">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <ImageIcon className="w-3 h-3 text-blue-400" />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
-              Ảnh đính kèm ({attachments.length}/20)
-            </span>
-          </div>
-          <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
-            Kéo thả hoặc Ctrl+V dán ảnh trực tiếp
-          </span>
+      <section className="hairline-t shrink-0 bg-background">
+        <div className="flex h-8 items-center justify-between px-3 font-mono text-xs text-foreground-tertiary sm:px-4">
+          <span>Ảnh đính kèm {attachments.length}/20</span>
+          <span className="hidden sm:inline">Ctrl+V hoặc kéo thả</span>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+        <div className="grid max-h-[34vh] grid-cols-3 gap-2 overflow-y-auto px-3 pb-3 sm:grid-cols-5 sm:px-4 sm:pb-4 lg:grid-cols-8">
           {uploading && (
-            <div className="aspect-square bg-slate-900/80 border border-blue-500/50 border-dashed rounded-2xl flex flex-col items-center justify-center p-3 text-center animate-pulse">
-              <Loader2 className="w-6 h-6 text-blue-400 animate-spin mb-1.5" />
-              <span className="text-xs text-blue-300 font-medium font-mono">Đang tải lên...</span>
+            <div className="flex aspect-square items-center justify-center rounded-md border border-dashed border-border-contrast">
+              <Loader2 className="h-4 w-4 animate-spin text-foreground-tertiary" />
             </div>
           )}
 
           {attachments.map((att) => (
-            <div
+            <figure
               key={att.id}
-              className="group relative aspect-square bg-slate-900/90 border border-white/10 rounded-2xl overflow-hidden transition-all duration-300 hover:border-blue-500/40 hover:shadow-xl hover:shadow-blue-500/5"
+              className="group relative aspect-square overflow-hidden rounded-md border border-border bg-muted"
             >
-              {/* Image Thumbnail */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={att.public_url}
+                src={att.url}
                 alt={att.filename}
-                className="w-full h-full object-cover cursor-pointer transition-transform duration-500 group-hover:scale-105"
+                loading="lazy"
+                className="h-full w-full cursor-pointer object-cover"
                 onClick={() => setSelectedImage(att)}
               />
 
-              {/* Top Gradient Header */}
-              <div className="absolute inset-x-0 top-0 p-2.5 bg-gradient-to-b from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-between pointer-events-none font-mono">
-                <span className="text-[10px] text-slate-200 truncate max-w-[75%] font-medium">
-                  {att.filename}
-                </span>
-                <span className="text-[9px] text-slate-400 bg-black/60 px-1.5 py-0.5 rounded">
-                  {(att.size / 1024).toFixed(0)}KB
-                </span>
-              </div>
-
-              {/* Bottom Actions Overlay */}
-              <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
-                <button
-                  onClick={() => setSelectedImage(att)}
-                  className="p-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-white/10 transition-colors"
-                  title="Xem phóng to"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  onClick={() => handleCopyImage(att)}
-                  className="p-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-white/10 transition-colors"
-                  title="Sao chép ảnh vào Clipboard"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  onClick={() => handleDownloadImage(att)}
-                  className="p-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-white/10 transition-colors"
-                  title="Tải ảnh về"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-
-                <button
+              {/* Actions stay hidden until hover, and are always reachable by
+                  keyboard through the lightbox. */}
+              <figcaption className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-0.5 bg-background/90 p-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <IconAction label="Phóng to" onClick={() => setSelectedImage(att)}>
+                  <Maximize2 className="h-3 w-3" />
+                </IconAction>
+                <IconAction label="Chép ảnh" onClick={() => handleCopyImage(att)}>
+                  <Copy className="h-3 w-3" />
+                </IconAction>
+                <IconAction label="Tải về" onClick={() => handleDownloadImage(att)}>
+                  <Download className="h-3 w-3" />
+                </IconAction>
+                <IconAction
+                  label="Xóa ảnh"
                   onClick={() => handleDelete(att)}
                   disabled={deletingId === att.id}
-                  className="p-1.5 rounded-lg bg-rose-950/90 hover:bg-rose-900 border border-rose-800/40 text-rose-300 transition-colors disabled:opacity-50"
-                  title="Xóa ảnh"
+                  className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
                 >
                   {deletingId === att.id ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="h-3 w-3" />
                   )}
-                </button>
-              </div>
-            </div>
+                </IconAction>
+              </figcaption>
+            </figure>
           ))}
         </div>
-      </div>
+      </section>
 
       <ImageLightbox
         attachment={selectedImage}
@@ -196,5 +159,32 @@ export function AttachmentGrid({
         onDelete={handleDelete}
       />
     </>
+  );
+}
+
+function IconAction({
+  label,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className={`rounded-sm p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50 ${className ?? ''}`}
+    >
+      {children}
+    </button>
   );
 }

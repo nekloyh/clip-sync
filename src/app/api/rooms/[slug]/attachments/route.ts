@@ -1,150 +1,115 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
+import { guardRoom } from '@/lib/guard';
 import { createAdminClient } from '@/lib/supabase/server';
+import { ATTACHMENTS_BUCKET, attachmentUrl } from '@/lib/rooms';
+import { rateLimit, clientKey } from '@/lib/rate-limit';
+import { fail, tooManyRequests, ERR_INTERNAL } from '@/lib/http';
+import {
+  isAllowedImageType,
+  sniffImageType,
+  extensionFor,
+  sanitizeFilename,
+} from '@/lib/images';
+import type { Attachment } from '@/lib/types';
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS_PER_ROOM = 20;
+const UPLOAD_LIMIT = 30;
+const UPLOAD_WINDOW_MS = 60_000;
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { slug: string } }
-) {
+export async function POST(req: NextRequest, { params }: { params: { slug: string } }) {
+  const guarded = await guardRoom(params.slug);
+  if (!guarded.ok) return guarded.response;
+
+  const limit = rateLimit(
+    `upload:${clientKey(req)}:${guarded.slug}`,
+    UPLOAD_LIMIT,
+    UPLOAD_WINDOW_MS
+  );
+  if (!limit.ok) return tooManyRequests(limit.retryAfterSeconds);
+
+  const supabase = createAdminClient();
+
   try {
-    const slug = params.slug.toLowerCase().trim();
-    const supabase = createAdminClient();
-
-    // Fetch room
-    const { data: room, error: roomErr } = await supabase
-      .from('rooms')
-      .select('id')
-      .eq('slug', slug)
-      .single();
-
-    if (roomErr || !room) {
-      return NextResponse.json({ error: 'Không tìm thấy phòng' }, { status: 404 });
-    }
-
-    // Check current attachment count
     const { count, error: countErr } = await supabase
       .from('attachments')
       .select('id', { count: 'exact', head: true })
-      .eq('room_id', room.id);
+      .eq('room_id', guarded.room.id);
 
-    if (countErr) {
-      return NextResponse.json({ error: countErr.message }, { status: 500 });
-    }
-
-    if ((count || 0) >= MAX_ATTACHMENTS_PER_ROOM) {
-      return NextResponse.json(
-        { error: `Phòng đã đạt giới hạn tối đa ${MAX_ATTACHMENTS_PER_ROOM} ảnh.` },
-        { status: 400 }
-      );
+    if (countErr) return fail(ERR_INTERNAL, 500, countErr);
+    if ((count ?? 0) >= MAX_ATTACHMENTS_PER_ROOM) {
+      return fail(`Phòng đã đạt giới hạn tối đa ${MAX_ATTACHMENTS_PER_ROOM} ảnh.`, 400);
     }
 
     const formData = await req.formData();
-    const file = formData.get('file') as File | null;
+    const file = formData.get('file');
 
-    if (!file) {
-      return NextResponse.json({ error: 'Không tìm thấy file tải lên' }, { status: 400 });
+    if (!(file instanceof File)) {
+      return fail('Không tìm thấy file tải lên', 400);
     }
-
+    if (file.size === 0) {
+      return fail('Tập tin rỗng', 400);
+    }
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: 'Kích thước file vượt quá giới hạn tối đa 5MB.' },
-        { status: 400 }
-      );
+      return fail('Kích thước file vượt quá giới hạn tối đa 5MB.', 400);
+    }
+    if (!isAllowedImageType(file.type)) {
+      return fail('Chỉ chấp nhận ảnh PNG, JPEG, GIF, WebP, AVIF hoặc BMP.', 400);
     }
 
-    if (!file.type.startsWith('image/')) {
-      return NextResponse.json(
-        { error: 'Chỉ chấp nhận các định dạng tập tin hình ảnh.' },
-        { status: 400 }
-      );
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const sniffed = sniffImageType(buffer.subarray(0, 32));
+    if (!sniffed || sniffed !== file.type) {
+      return fail('Nội dung tập tin không khớp với định dạng ảnh đã khai báo.', 400);
     }
 
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `${room.id}/${Date.now()}_${cleanFileName}`;
+    // Random object name: the user-supplied filename never reaches the storage
+    // path, so there is nothing to traverse or collide with.
+    const filename = sanitizeFilename(file.name);
+    const storagePath = `${guarded.room.id}/${randomUUID()}.${extensionFor(sniffed)}`;
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // Upload to Supabase Storage
     const { error: uploadErr } = await supabase.storage
-      .from('clipsync-attachments')
-      .upload(storagePath, buffer, {
-        contentType: file.type,
-        upsert: true,
-      });
+      .from(ATTACHMENTS_BUCKET)
+      .upload(storagePath, buffer, { contentType: sniffed, upsert: false });
 
-    if (uploadErr) {
-      return NextResponse.json(
-        { error: `Tải ảnh lên Supabase Storage thất bại: ${uploadErr.message}` },
-        { status: 500 }
-      );
-    }
+    if (uploadErr) return fail('Tải ảnh lên thất bại', 500, uploadErr);
 
-    // Insert database attachment row
-    const { data: attachment, error: insertErr } = await supabase
+    const { data: row, error: insertErr } = await supabase
       .from('attachments')
       .insert([
         {
-          room_id: room.id,
+          room_id: guarded.room.id,
           storage_path: storagePath,
-          filename: file.name,
-          mime: file.type,
+          filename,
+          mime: sniffed,
           size: file.size,
         },
       ])
-      .select('*')
+      .select('id, room_id, filename, mime, size, created_at')
       .single();
 
     if (insertErr) {
-      return NextResponse.json({ error: insertErr.message }, { status: 500 });
+      // Do not leave the object behind if the row could not be written.
+      await supabase.storage.from(ATTACHMENTS_BUCKET).remove([storagePath]);
+      return fail(ERR_INTERNAL, 500, insertErr);
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const publicUrl = `${supabaseUrl}/storage/v1/object/public/clipsync-attachments/${storagePath}`;
+    const attachment: Attachment = {
+      id: row.id,
+      room_id: row.room_id,
+      filename: row.filename,
+      mime: row.mime,
+      size: row.size,
+      created_at: row.created_at,
+      url: attachmentUrl(guarded.slug, row.id),
+    };
 
-    return NextResponse.json({
-      attachment: {
-        ...attachment,
-        public_url: publicUrl,
-      },
-    });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
-  }
-}
-
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { slug: string } }
-) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const attachmentId = searchParams.get('id');
-
-    if (!attachmentId) {
-      return NextResponse.json({ error: 'ID ảnh là bắt buộc' }, { status: 400 });
-    }
-
-    const supabase = createAdminClient();
-
-    // Fetch attachment details to get storage_path
-    const { data: att } = await supabase
-      .from('attachments')
-      .select('id, storage_path')
-      .eq('id', attachmentId)
-      .maybeSingle();
-
-    if (att) {
-      // Remove file from storage
-      await supabase.storage.from('clipsync-attachments').remove([att.storage_path]);
-      // Remove row from DB
-      await supabase.from('attachments').delete().eq('id', att.id);
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
+    return NextResponse.json({ attachment });
+  } catch (err) {
+    return fail(ERR_INTERNAL, 500, err);
   }
 }

@@ -1,18 +1,17 @@
+import 'server-only';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { supabaseUrl, supabaseServiceRoleKey } from '../env';
 
+/**
+ * Service-role client. This is the *only* way the app touches the database —
+ * the browser's anon key has no table privileges at all (see migration 002),
+ * so every read and write goes through a route handler that can authorize it.
+ *
+ * No placeholder fallbacks: a missing variable throws here rather than
+ * producing an opaque Supabase error later.
+ */
 export function createAdminClient() {
-  // Use fallback dummy values if env vars are missing so the server doesn't crash on unhandled exceptions
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_URL.startsWith('http')
-      ? process.env.NEXT_PUBLIC_SUPABASE_URL
-      : 'https://placeholder.supabase.co';
-
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    'placeholder-key-for-development';
-
-  return createSupabaseClient(supabaseUrl, supabaseKey, {
+  return createSupabaseClient(supabaseUrl(), supabaseServiceRoleKey(), {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
