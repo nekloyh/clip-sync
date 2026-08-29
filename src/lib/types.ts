@@ -1,4 +1,7 @@
-/** Full row as stored. Server-side only — `pin_hash` must never cross to the client. */
+/**
+ * Full row as stored. Server-side only — neither `pin_hash` nor
+ * `owner_secret_hash` may ever cross to the client.
+ */
 export interface RoomRecord {
   id: string;
   slug: string;
@@ -7,6 +10,52 @@ export interface RoomRecord {
   created_at: string;
   updated_at: string;
   last_seen_at: string;
+  /** sha256 of the owner capability. NULL for rooms created before ownership. */
+  owner_secret_hash: string | null;
+  /** Bumped to revoke every owner cookie issued for this room. */
+  owner_version: number;
+  /**
+   * Where this room is in its deletion lifecycle. Only `active` rooms are
+   * readable; everything else is reported to callers as a 404.
+   */
+  lifecycle_state: RoomLifecycleState;
+  /** When deletion was requested, for the worker's stable ordering. */
+  deletion_requested_at: string | null;
+  /** How many times the worker has tried and failed to finish the deletion. */
+  deletion_attempts: number;
+  /** Stable ClipSync error code from the last failure. Never a provider message. */
+  deletion_error_code: string | null;
+}
+
+/**
+ * The deletion state machine.
+ *
+ * `deletion_pending` exists because deletion spans two systems that cannot be
+ * committed together: the metadata in Postgres and the objects in Storage.
+ * Whichever is destroyed first, a crash in between leaves the other stranded —
+ * and the previous implementation destroyed the metadata first, which is the
+ * unrecoverable order: the row is the only record of which objects belonged to
+ * the room, so losing it turns every one of those images into an orphan nothing
+ * can ever attribute or retry.
+ *
+ * Marking intent first inverts that. The row survives until the objects are
+ * actually gone, so a failure is resumable, and the room is already invisible
+ * to every reader from the instant the request lands.
+ */
+export type RoomLifecycleState =
+  | 'active'
+  | 'deletion_pending'
+  | 'deleting'
+  | 'deleted'
+  | 'deletion_failed';
+
+/**
+ * What a caller is allowed to do, as reported to the client. Booleans only:
+ * nothing here can be replayed as proof of anything.
+ */
+export interface RoomCapabilities {
+  canManage: boolean;
+  canDeleteEvidence: boolean;
 }
 
 /** What the client is allowed to see: whether a PIN exists, never its hash. */

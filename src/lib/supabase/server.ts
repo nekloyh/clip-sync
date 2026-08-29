@@ -16,5 +16,18 @@ export function createAdminClient() {
       persistSession: false,
       autoRefreshToken: false,
     },
+    // Next patches global fetch and caches GETs in its Data Cache. PostgREST
+    // reads go out as GETs, so without this a query can be answered from a
+    // cache instead of the database — which is never what this app wants, and
+    // which silently broke the schema health probe: it kept reporting `ok`
+    // from a cached response after the owner columns had been dropped.
+    //
+    // Route-level `dynamic = 'force-dynamic'` does not cover it; that governs
+    // the route's own rendering, not the fetches it makes. Opting out here
+    // makes it a property of the client rather than something every future
+    // caller has to remember.
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+    },
   });
 }

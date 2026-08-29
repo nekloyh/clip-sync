@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 beforeAll(() => {
-  process.env.CLIPSYNC_AUTH_SECRET = 'test-secret-for-room-auth';
+  process.env.CLIPSYNC_AUTH_SECRET = 'test-secret-for-room-auth-at-least-32-chars';
 });
 
 const { createAccessToken, verifyAccessToken, accessCookieName } = await import('./room-auth');

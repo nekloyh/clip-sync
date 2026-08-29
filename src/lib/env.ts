@@ -30,13 +30,33 @@ export function supabaseServiceRoleKey(): string {
   return required('SUPABASE_SERVICE_ROLE_KEY');
 }
 
+const MIN_AUTH_SECRET_LENGTH = 32;
+
 /**
- * Secret used to sign room access cookies. Falls back to the service-role key,
- * which is already a server-only secret, so existing deployments keep working
- * without a new variable. Rotating either value invalidates all unlock cookies.
+ * Secret used to sign room access cookies *and* owner capability cookies.
+ *
+ * This deliberately has no fallback. It used to default to the service-role
+ * key, which was survivable while the only casualty was an unlock cookie —
+ * losing one just means retyping a PIN. Owner capabilities changed the stakes:
+ * the signing key is now the thing that proves who created a room, and there
+ * is no account to recover from. Rotating the Supabase key is routine hygiene
+ * and mandatory after any suspected leak, so a deployment where those two
+ * secrets are the same value is one rotation away from orphaning every room it
+ * hosts, irreversibly and all at once.
+ *
+ * Keeping them separate is the whole point, so an unset value is a
+ * configuration error and fails loudly rather than silently borrowing a key
+ * whose rotation schedule belongs to somebody else.
  */
 export function authSecret(): string {
-  return process.env.CLIPSYNC_AUTH_SECRET || supabaseServiceRoleKey();
+  const secret = required('CLIPSYNC_AUTH_SECRET');
+  if (secret.length < MIN_AUTH_SECRET_LENGTH) {
+    throw new Error(
+      `CLIPSYNC_AUTH_SECRET must be at least ${MIN_AUTH_SECRET_LENGTH} characters. ` +
+        'Generate one with: openssl rand -base64 48'
+    );
+  }
+  return secret;
 }
 
 /** Shared secret required by the scheduled cleanup endpoint. */
