@@ -3,25 +3,45 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { Attachment, Room } from '@/lib/types';
+import { Attachment, Room, RoomCapabilities } from '@/lib/types';
 import { EditorHeader } from './EditorHeader';
 import { StatusRail } from './StatusRail';
 import { AttachmentGrid } from './AttachmentGrid';
 import { PinModal } from './PinModal';
+import { OwnerNotice } from './OwnerNotice';
 import { useToast } from '@/components/ui/Toast';
 import { UploadCloud } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import {
+  failureFromResponse,
+  failureFromThrown,
+  fetchWithTimeout,
+  type RequestFailure,
+} from '@/lib/request-failure';
+import type { PendingUpload } from './AttachmentGrid';
 
 interface TextEditorProps {
   initialRoom: Room;
   initialAttachments: Attachment[];
+  /** Server's verdict on what this visitor may do. Presentation only. */
+  initialCapabilities: RoomCapabilities;
+  /** Set on the first load after creation, to explain what ownership means. */
+  justCreated?: boolean;
   slug: string;
 }
 
 const MAX_CHARS = 100000;
 const SAVE_DEBOUNCE_MS = 500;
+const SAVE_TIMEOUT_MS = 15_000;
+const UPLOAD_TIMEOUT_MS = 60_000;
 
-export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditorProps) {
+export function TextEditor({
+  initialRoom,
+  initialAttachments,
+  initialCapabilities,
+  justCreated = false,
+  slug,
+}: TextEditorProps) {
   const router = useRouter();
   const { showToast } = useToast();
 
@@ -37,16 +57,36 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
   const [content, setContent] = useState<string>(initialRoom.content || '');
   const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
   const [hasPin, setHasPin] = useState<boolean>(initialRoom.hasPin);
+  // Mirrors the API's answer so the chrome matches reality after a re-sync.
+  // Every action these flags reveal is re-authorized server-side anyway.
+  const [capabilities, setCapabilities] = useState<RoomCapabilities>(initialCapabilities);
 
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'idle' | 'error'>('saved');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [onlineCount, setOnlineCount] = useState<number>(1);
-  const [uploading, setUploading] = useState<boolean>(false);
+  // One entry per file the person has handed over but the server has not
+  // confirmed. A file only becomes an `Attachment` - and only then looks
+  // finished - once a 200 comes back with a row id, so nothing in the grid
+  // claims to be stored before it is.
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  /**
+   * The text a save could not deliver, kept so it is never lost.
+   *
+   * Autosave used to fail into a toast: the buffer on screen was ahead of the
+   * server, nothing said which parts had landed, and closing the tab discarded
+   * the difference silently. Holding the exact text that failed - and offering
+   * a button that resends it - is what makes "saved" mean something.
+   */
+  const [saveFailure, setSaveFailure] = useState<RequestFailure | null>(null);
+  const [isOffline, setIsOffline] = useState<boolean>(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The text a debounced save is holding but has not sent yet, so unmount can
+  // still flush it.
+  const pendingContentRef = useRef<string | null>(null);
   const lastUpdatedAtRef = useRef<string>(initialRoom.updated_at || new Date(0).toISOString());
   const supabaseRef = useRef(createClient());
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -55,6 +95,9 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
   const saveSeqRef = useRef(0);
   const appliedSeqRef = useRef(0);
   const dragDepthRef = useRef(0);
+  /** The exact text of the last failed save, for the retry button. */
+  const failedContentRef = useRef<string | null>(null);
+  const uploadSeqRef = useRef(0);
 
   const formatTime = (isoString?: string) => {
     try {
@@ -110,6 +153,7 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
 
         setAttachments(data.attachments ?? []);
         setHasPin(!!data.room.hasPin);
+        if (data.capabilities) setCapabilities(data.capabilities);
 
         const remoteTime = new Date(data.room.updated_at).getTime();
         const localTime = new Date(lastUpdatedAtRef.current).getTime();
@@ -130,23 +174,46 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
   const performSave = useCallback(
     async (textToSave: string) => {
       const seq = ++saveSeqRef.current;
+      pendingContentRef.current = null;
       setSaveStatus('saving');
 
       try {
-        const res = await fetch(`/api/rooms/${slug}/save`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: textToSave }),
-        });
+        const res = await fetchWithTimeout(
+          `/api/rooms/${slug}/save`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: textToSave }),
+          },
+          SAVE_TIMEOUT_MS
+        );
 
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || 'Lỗi lưu tự động');
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          // A superseded save's failure is not this save's problem: a newer
+          // request is already in flight with newer text, and surfacing the old
+          // one would show an error for content that is about to be saved.
+          if (seq < appliedSeqRef.current) return;
+
+          const failure = failureFromResponse(res.status, data, res.headers.get('Retry-After'));
+          // The exact text that did not land, kept verbatim. This is what the
+          // retry resends, and what stops a failed save from being a silent
+          // data loss the moment the tab closes.
+          failedContentRef.current = textToSave;
+          setSaveFailure(failure);
+          setSaveStatus('error');
+          return;
+        }
 
         // A response from a superseded request tells us nothing useful.
         if (seq < appliedSeqRef.current) return;
         appliedSeqRef.current = seq;
 
-        const newUpdatedAt = data.updated_at || new Date().toISOString();
+        failedContentRef.current = null;
+        setSaveFailure(null);
+
+        const newUpdatedAt = data?.updated_at || new Date().toISOString();
         lastUpdatedAtRef.current = newUpdatedAt;
         setLastSavedAt(formatTime(newUpdatedAt));
         setSaveStatus('saved');
@@ -158,16 +225,27 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
         });
       } catch (err) {
         if (seq < appliedSeqRef.current) return;
+        failedContentRef.current = textToSave;
+        setSaveFailure(
+          failureFromThrown(err, typeof navigator === 'undefined' ? true : navigator.onLine)
+        );
         setSaveStatus('error');
-        showToast(err instanceof Error ? err.message : 'Không thể kết nối lưu tự động', 'error');
       }
     },
-    [slug, showToast]
+    [slug]
   );
+
+  /** Resend the exact text the last save could not deliver. */
+  const retrySave = useCallback(() => {
+    const pending = failedContentRef.current;
+    if (pending === null) return;
+    void performSave(pending);
+  }, [performSave]);
 
   const scheduleSave = useCallback(
     (value: string) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      pendingContentRef.current = value;
       saveTimeoutRef.current = setTimeout(() => {
         saveTimeoutRef.current = null;
         performSave(value);
@@ -190,12 +268,30 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
     scheduleSave(val);
   };
 
-  // Flush any pending save exactly once, on unmount.
+  // Flush any pending save exactly once, on unmount. This used to only cancel
+  // the timer, which silently dropped up to a debounce window of typing every
+  // time someone navigated away — the last thing pasted being the thing most
+  // likely to be lost. `keepalive` is what lets the request outlive the page.
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (!saveTimeoutRef.current) return;
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+
+      const pending = pendingContentRef.current;
+      pendingContentRef.current = null;
+      if (pending === null) return;
+
+      void fetch(`/api/rooms/${slug}/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: pending }),
+        keepalive: true,
+      }).catch(() => {
+        // Nothing left to tell: the component is gone.
+      });
     };
-  }, []);
+  }, [slug]);
 
   // Realtime: presence + change pings only.
   useEffect(() => {
@@ -232,6 +328,32 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
     };
   }, [slug, syncFromServer]);
 
+  /**
+   * Track connectivity, and resend a failed save when the network returns.
+   *
+   * The `online` event is the one moment where a retry is known to be worth
+   * attempting, so taking it removes the most common reason a person would have
+   * had to press the button themselves. Uploads are deliberately *not*
+   * auto-retried: a file is large, the person may have moved on, and silently
+   * re-sending several megabytes on a newly-recovered (possibly metered)
+   * connection is a decision that should stay theirs.
+   */
+  useEffect(() => {
+    const update = () => {
+      const online = navigator.onLine;
+      setIsOffline(!online);
+      if (online && failedContentRef.current !== null) retrySave();
+    };
+
+    update();
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, [retrySave]);
+
   // Refresh when the tab regains focus — a phone waking from sleep drops the
   // websocket without a reconnect event the app can see.
   useEffect(() => {
@@ -250,42 +372,93 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
     });
   }, []);
 
-  const uploadFile = async (file: File) => {
-    if (attachments.length >= 20) {
-      showToast('Phòng đã đạt giới hạn tối đa 20 ảnh đính kèm', 'error');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('Dung lượng tập tin phải ≤ 5MB', 'error');
-      return;
-    }
-    if (!file.type.startsWith('image/')) {
-      showToast('Chỉ hỗ trợ đính kèm hình ảnh', 'error');
-      return;
-    }
+  /**
+   * Send one file, tracked as its own pending entry from the moment it is
+   * accepted until the server confirms it.
+   *
+   * `existingId` is what makes retry a retry rather than a second upload: the
+   * same entry goes back to `uploading` in place, so the person sees the file
+   * they picked being tried again instead of a second tile appearing beside the
+   * failed one.
+   */
+  const uploadFile = useCallback(
+    async (file: File, existingId?: string) => {
+      const id = existingId ?? `pending-${++uploadSeqRef.current}`;
 
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch(`/api/rooms/${slug}/attachments`, {
-        method: 'POST',
-        body: formData,
+      setPendingUploads((prev) => {
+        const entry: PendingUpload = { id, file, name: file.name, status: 'uploading' };
+        return existingId ? prev.map((p) => (p.id === id ? entry : p)) : [entry, ...prev];
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Tải ảnh lên thất bại');
+      const failWith = (failure: RequestFailure) => {
+        setPendingUploads((prev) =>
+          prev.map((p) => (p.id === id ? { ...p, status: 'failed', failure } : p))
+        );
+      };
 
-      setAttachments((prev) => [data.attachment, ...prev]);
-      showToast('Đã đính kèm ảnh thành công!', 'success');
-      notifyPeers();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Lỗi tải ảnh lên', 'error');
-    } finally {
-      setUploading(false);
-    }
-  };
+      // Checked here as well as on the server so the obvious rejections are
+      // instant and do not spend the person's upload budget. The server checks
+      // again regardless; this is a courtesy, not a control.
+      if (file.size > 5 * 1024 * 1024) {
+        failWith({
+          kind: 'rejected',
+          message: 'Dung lượng tập tin phải ≤ 5MB',
+          retryable: false,
+        });
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        failWith({
+          kind: 'rejected',
+          message: 'Chỉ hỗ trợ đính kèm hình ảnh',
+          retryable: false,
+        });
+        return;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetchWithTimeout(
+          `/api/rooms/${slug}/attachments`,
+          { method: 'POST', body: formData },
+          UPLOAD_TIMEOUT_MS
+        );
+
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok || !data?.attachment) {
+          failWith(failureFromResponse(res.status, data, res.headers.get('Retry-After')));
+          return;
+        }
+
+        // Only now does the file become an attachment. Until this line it has
+        // been a pending tile with a spinner, so nothing has ever claimed the
+        // image was stored before the server said so.
+        setAttachments((prev) => [data.attachment, ...prev]);
+        setPendingUploads((prev) => prev.filter((p) => p.id !== id));
+        notifyPeers();
+      } catch (err) {
+        failWith(
+          failureFromThrown(err, typeof navigator === 'undefined' ? true : navigator.onLine)
+        );
+      }
+    },
+    [slug, notifyPeers]
+  );
+
+  const retryUpload = useCallback(
+    (id: string) => {
+      const entry = pendingUploads.find((p) => p.id === id);
+      if (entry) void uploadFile(entry.file, id);
+    },
+    [pendingUploads, uploadFile]
+  );
+
+  const dismissUpload = useCallback((id: string) => {
+    setPendingUploads((prev) => prev.filter((p) => p.id !== id));
+  }, []);
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
@@ -295,7 +468,12 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
       if (items[i].type.startsWith('image/')) {
         e.preventDefault();
         const file = items[i].getAsFile();
-        if (file) void uploadFile(file);
+        if (!file) continue;
+        if (attachments.length + pendingUploads.length >= 20) {
+          showToast('Phòng đã đạt giới hạn tối đa 20 ảnh đính kèm', 'error');
+          break;
+        }
+        void uploadFile(file);
       }
     }
   };
@@ -324,7 +502,13 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files ?? []);
-    for (const file of files) void uploadFile(file);
+    for (const file of files) {
+      if (attachments.length + pendingUploads.length >= 20) {
+        showToast('Phòng đã đạt giới hạn tối đa 20 ảnh đính kèm', 'error');
+        break;
+      }
+      void uploadFile(file);
+    }
   };
 
   const handleDeleteAttachment = async (id: string) => {
@@ -363,7 +547,8 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
     try {
       const res = await fetch(`/api/rooms/${slug}`, { method: 'DELETE' });
       if (!res.ok) {
-        showToast('Lỗi khi xóa phòng', 'error');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Lỗi khi xóa phòng', 'error');
         return;
       }
       showToast('Đã xóa phòng thành công', 'success');
@@ -387,10 +572,14 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
       <EditorHeader
         slug={slug}
         hasPin={hasPin}
+        canManage={capabilities.canManage}
         onCopyAllText={handleCopyAllText}
         onOpenPinModal={() => setPinModalOpen(true)}
         onDeleteRoom={handleDeleteRoom}
       />
+
+      {/* Only for the creator, and only on the load that follows creation. */}
+      {justCreated && capabilities.canManage && <OwnerNotice />}
 
       {/* Chrome (header + rail) sits on the darkest surface and the buffer on
           the lighter page ground, so the writing area reads as lit and framed
@@ -409,7 +598,9 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
 
         <StatusRail
           onlineCount={onlineCount}
-          saveStatus={saveStatus}
+          saveStatus={isOffline && saveStatus !== 'error' ? 'offline' : saveStatus}
+          saveFailure={saveFailure}
+          onRetrySave={retrySave}
           lastSavedAt={lastSavedAt}
           lines={lineCount}
           words={wordCount}
@@ -420,8 +611,11 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
 
       <AttachmentGrid
         attachments={attachments}
-        uploading={uploading}
+        pending={pendingUploads}
+        canDelete={capabilities.canDeleteEvidence}
         onDeleteAttachment={handleDeleteAttachment}
+        onRetryUpload={retryUpload}
+        onDismissUpload={dismissUpload}
       />
 
       {isDragging && (
@@ -438,7 +632,7 @@ export function TextEditor({ initialRoom, initialAttachments, slug }: TextEditor
       )}
 
       <PinModal
-        isOpen={pinModalOpen}
+        isOpen={pinModalOpen && capabilities.canManage}
         mode="set"
         slug={slug}
         hasPin={hasPin}

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Check, Copy, Link2, Lock, Trash2, Unlock } from 'lucide-react';
+import { Check, Copy, Link2, Lock, Trash2, Unlock, Users } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
@@ -11,6 +11,8 @@ import { Wordmark } from '@/components/ui/Wordmark';
 interface EditorHeaderProps {
   slug: string;
   hasPin: boolean;
+  /** Owner of the room. Everyone else is a contributor. */
+  canManage: boolean;
   onCopyAllText: () => void;
   onOpenPinModal: () => void;
   onDeleteRoom: () => void;
@@ -23,6 +25,7 @@ interface EditorHeaderProps {
 export function EditorHeader({
   slug,
   hasPin,
+  canManage,
   onCopyAllText,
   onOpenPinModal,
   onDeleteRoom,
@@ -79,34 +82,63 @@ export function EditorHeader({
           <span className="hidden sm:inline">Chép văn bản</span>
         </Button>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onOpenPinModal}
-          title={hasPin ? 'Phòng đang khóa PIN' : 'Đặt mã PIN'}
-        >
-          {hasPin ? (
-            <Lock className="h-3.5 w-3.5 text-[var(--dark-yellow)]" />
-          ) : (
-            <Unlock className="h-3.5 w-3.5" />
-          )}
-          <span className="hidden md:inline">{hasPin ? 'Đã khóa' : 'Đặt PIN'}</span>
-        </Button>
+        {/* Owner-only controls. Hiding them is courtesy, not enforcement — the
+            API refuses these mutations regardless of what is on screen. */}
+        {canManage ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onOpenPinModal}
+              title={hasPin ? 'Phòng đang khóa PIN' : 'Đặt mã PIN'}
+            >
+              {hasPin ? (
+                <Lock className="h-3.5 w-3.5 text-[var(--dark-yellow)]" />
+              ) : (
+                <Unlock className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden md:inline">{hasPin ? 'Đã khóa' : 'Đặt PIN'}</span>
+            </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDeleteRoom}
-          title="Xóa phòng"
-          aria-label="Xóa phòng"
-          className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onDeleteRoom}
+              title="Xóa phòng"
+              aria-label="Xóa phòng"
+              className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        ) : (
+          <ContributorBadge hasPin={hasPin} />
+        )}
 
         <span className="mx-1 hidden h-4 w-px bg-border sm:block" />
         <ThemeToggle />
       </div>
     </header>
+  );
+}
+
+/**
+ * Tells a recipient what they are. Without it the missing PIN and delete
+ * buttons read as a bug rather than as "this room belongs to someone else" —
+ * and the person needs to know that the owner can close the room at any time.
+ */
+function ContributorBadge({ hasPin }: { hasPin: boolean }) {
+  return (
+    <span
+      className="flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-xs text-muted-foreground"
+      title="Bạn có thể đọc, sửa văn bản và gửi ảnh. Chỉ người tạo phòng mới đổi PIN hoặc xóa phòng."
+    >
+      {hasPin ? (
+        <Lock className="h-3.5 w-3.5 text-[var(--dark-yellow)]" />
+      ) : (
+        <Users className="h-3.5 w-3.5" />
+      )}
+      <span className="hidden md:inline">Cộng tác viên</span>
+    </span>
   );
 }

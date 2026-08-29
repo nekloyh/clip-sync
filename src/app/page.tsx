@@ -36,6 +36,7 @@ export default function HomePage() {
   const [joinSlug, setJoinSlug] = useState('');
   const [loadingCreate, setLoadingCreate] = useState(false);
   const [loadingJoin, setLoadingJoin] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   const handleCreateRoom = async () => {
     setLoadingCreate(true);
@@ -47,22 +48,56 @@ export default function HomePage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.slug) throw new Error(data.error || 'Không tạo được phòng');
-      router.push(`/r/${data.slug}`);
+      router.push(`/r/${data.slug}?new=1`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Không tạo được phòng', 'error');
       setLoadingCreate(false);
     }
   };
 
-  const handleJoinRoom = (e: React.FormEvent) => {
+  /**
+   * Rooms are no longer created by visiting a URL, so a code that does not
+   * resolve is a dead end rather than a new room. Checking existence here —
+   * instead of navigating and letting the room page 404 — is what lets the two
+   * failures be told apart: a malformed code is the person's typing, a valid
+   * code with nothing behind it is a room that expired or was closed. Sending
+   * both to the same 404 page made the second look like the first.
+   */
+  const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
+    setJoinError(null);
+
     const cleaned = normalizeSlug(joinSlug);
     if (!isValidSlug(cleaned)) {
-      showToast('Mã phòng cần ít nhất 3 ký tự: chữ thường, số hoặc gạch ngang', 'error');
+      setJoinError('Mã phòng chỉ gồm chữ thường, số và dấu gạch ngang, tối thiểu 3 ký tự.');
       return;
     }
+
     setLoadingJoin(true);
-    router.push(`/r/${cleaned}`);
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: cleaned }),
+      });
+
+      if (res.status === 404) {
+        setJoinError('Không có phòng nào với mã này. Phòng có thể đã hết hạn hoặc bị chủ xóa.');
+        setLoadingJoin(false);
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setJoinError(data.error || 'Không vào được phòng, vui lòng thử lại.');
+        setLoadingJoin(false);
+        return;
+      }
+
+      router.push(`/r/${cleaned}`);
+    } catch {
+      setJoinError('Không kết nối được, vui lòng thử lại.');
+      setLoadingJoin(false);
+    }
   };
 
   return (
@@ -144,7 +179,12 @@ export default function HomePage() {
                   <input
                     type="text"
                     value={joinSlug}
-                    onChange={(e) => setJoinSlug(e.target.value)}
+                    onChange={(e) => {
+                      setJoinSlug(e.target.value);
+                      if (joinError) setJoinError(null);
+                    }}
+                    aria-invalid={joinError ? true : undefined}
+                    aria-describedby={joinError ? 'join-error' : undefined}
                     placeholder="quiet-fox-h7k2mq9d"
                     aria-label="Mã phòng"
                     autoCapitalize="off"
@@ -157,6 +197,12 @@ export default function HomePage() {
                   {loadingJoin ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Vào phòng'}
                 </Button>
               </form>
+
+              {joinError && (
+                <p id="join-error" role="status" className="text-xs text-[var(--dark-red)]">
+                  {joinError}
+                </p>
+              )}
             </div>
           </div>
 

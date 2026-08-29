@@ -10,7 +10,8 @@ interface ImageLightboxProps {
   onClose: () => void;
   onCopy: (att: Attachment) => void;
   onDownload: (att: Attachment) => void;
-  onDelete: (att: Attachment) => void;
+  /** Omitted for contributors: only the owner may remove evidence. */
+  onDelete?: (att: Attachment) => void;
 }
 
 export function ImageLightbox({
@@ -59,15 +60,17 @@ export function ImageLightbox({
             <Download className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Tải về</span>
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onDelete(attachment)}
-            className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Xóa</span>
-          </Button>
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onDelete(attachment)}
+              className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Xóa</span>
+            </Button>
+          )}
           <span className="mx-1 h-4 w-px bg-border" />
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Đóng">
             <X className="h-4 w-4" />
