@@ -37,8 +37,20 @@ export class FakeSupabase {
   storageRemoveFailures = 0;
   /** Every path a `remove` was asked to delete, in order. */
   readonly removeCalls: string[][] = [];
-  /** Set to make storage `list` fail, modelling a bad minute rather than absence. */
+  /** Set to make every storage `list` fail, modelling a bad minute rather than absence. */
   storageListFails = false;
+  /**
+   * Set to fail only the listings of a room's own folder, leaving the top-level
+   * scan working. The two are different failures: one room being unreadable is
+   * a reason to skip that room, while the bucket being unreadable means nothing
+   * was scanned at all — and a reconciler that reports those the same way calls
+   * an outage a clean bill of health.
+   */
+  storageRoomListFails = false;
+  /** Set to make every query against this table return an error. */
+  failingTable: string | null = null;
+  /** Set to make `rpc` report a failure the way PostgREST does: returned, not thrown. */
+  rpcFails = false;
 
   constructor(seed: Record<string, FakeRow[]> = {}) {
     for (const [table, rows] of Object.entries(seed)) {
@@ -80,7 +92,7 @@ export class FakeSupabase {
             return { data: paths.map((name) => ({ name })), error: null };
           },
           list: async (prefix: string) => {
-            if (this.storageListFails) {
+            if (this.storageListFails || (prefix && this.storageRoomListFails)) {
               return { data: null, error: { message: 'storage listing unavailable' } };
             }
             const inFolder = [...this.objects]
@@ -90,7 +102,13 @@ export class FakeSupabase {
           },
         }),
       },
-      rpc: async () => ({ data: null, error: null }),
+      // PostgREST reports a failed function call by *returning* an error, not by
+      // throwing. Modelling that is the point: a caller that only wraps this in
+      // try/catch never learns the call failed.
+      rpc: async () =>
+        this.rpcFails
+          ? { data: null, error: { code: 'PGRST202', message: 'function not found' } }
+          : { data: null, error: null },
     };
   }
 }
@@ -221,6 +239,10 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown; count?: 
   }
 
   private async run(): Promise<{ data: unknown; error: unknown; count?: number }> {
+    if (this.db.failingTable === this.table) {
+      return { data: null, error: { code: 'XX000', message: 'database unavailable' } };
+    }
+
     const rows = this.db.rows(this.table);
 
     if (this.op === 'insert' || this.op === 'upsert') {

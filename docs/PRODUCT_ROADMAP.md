@@ -3,6 +3,10 @@
 > Trạng thái: bản định hướng để kiểm chứng và lập kế hoạch, không phải cam kết ngày phát hành.
 >
 > Định vị đề xuất: **Secure Support Handoff** — phòng trao đổi tạm thời giúp đội hỗ trợ thu thập và gửi text, screenshot, log, file cấu hình và dữ liệu nhạy cảm với khách hàng mà không yêu cầu người nhận tạo tài khoản hoặc cài ứng dụng.
+>
+> Kế hoạch thực thi kiến trúc, dependency giữa các phase, migration strategy và quality gate nằm tại
+> [`ARCHITECTURE_ROADMAP.md`](./ARCHITECTURE_ROADMAP.md). Tài liệu này quyết định **vì sao/cái gì**;
+> architecture roadmap quyết định **thực hiện theo thứ tự nào và kiểm chứng ra sao**.
 
 ## 1. Tóm tắt chiến lược
 
@@ -23,20 +27,27 @@ Lợi thế cần bảo vệ là: **nhanh như clipboard, có kiểm soát như 
 
 Các năng lực đang có trong codebase:
 
-- Tạo hoặc mở phòng bằng URL/mã phòng, không cần tài khoản.
+- Tạo phòng không cần tài khoản; room chỉ được tạo bởi `POST /api/rooms` với locator do server sinh.
+- Owner capability tách quyền quản trị khỏi recipient; biết URL hoặc PIN không trao quyền owner.
 - Đồng bộ text theo cơ chế last-write-wins.
 - Broadcast tín hiệu thay đổi và hiển thị số thiết bị đang kết nối.
 - Upload, xem, copy, tải và xóa ảnh.
 - PIN 4–6 chữ số; cookie mở khóa được ký và để ở chế độ `httpOnly`.
 - Database và storage chỉ được truy cập qua server; bucket ảnh là private.
-- Phòng không hoạt động được thiết kế để xóa sau 7 ngày qua cron.
-- Rate limit trong bộ nhớ tiến trình.
+- Mutation quản trị có owner guard tập trung và optimistic `owner_version` để revoke có hiệu lực.
+- Phòng không hoạt động được xếp vào deletion lifecycle có retry; reconciliation dò lệch DB/storage.
+- Rate limiter hỗ trợ shared Redis/Upstash, có fail-closed policy cho PIN và memory fallback có quan sát.
+- Structured log, error-monitoring port và product analytics dùng allowlist không chứa dữ liệu phòng.
+- Health/ops endpoints, cleanup metrics và script kiểm chứng schema hosted Supabase.
+- UI phân biệt offline, transient failure và permanent failure cho save/upload.
 
 Các năng lực **chưa có** và không được mô tả như tính năng hiện tại:
 
 - Mã hóa đầu cuối; server hiện vẫn có khả năng đọc nội dung.
-- Chủ sở hữu phòng, tài khoản tổ chức, RBAC, SSO hoặc audit log.
+- Tài khoản tổ chức, workspace, participant identity, RBAC, SSO hoặc audit log đầy đủ.
+- Khôi phục/chia sẻ owner giữa nhiều trình duyệt; owner hiện là capability cục bộ của một browser.
 - Thu hồi link, giới hạn lượt xem và thời hạn tùy chỉnh.
+- Locator ≥128 bit, locator hash-at-rest và realtime authorization độc lập với locator.
 - General file upload, resumable upload hoặc malware scanning.
 - Tích hợp Zendesk, Freshdesk, Intercom, Jira Service Management hoặc webhook.
 - Data-loss prevention, phát hiện secret/PII hoặc redaction.
@@ -82,6 +93,9 @@ Chưa ưu tiên enterprise lớn ở giai đoạn đầu vì chu kỳ bán hàng
 ## 5. Roadmap theo giai đoạn
 
 Mốc thời gian chỉ là ước lượng cho một đội nhỏ 2–4 người và phải được điều chỉnh sau discovery kỹ thuật.
+Trạng thái code và production evidence được theo dõi trong
+[`ARCHITECTURE_ROADMAP.md`](./ARCHITECTURE_ROADMAP.md); không coi một phase hoàn tất chỉ vì code đã
+merge hoặc đã hết thời gian ước lượng.
 
 ### Giai đoạn 0 — Discovery và kiểm chứng willingness-to-pay
 
@@ -121,6 +135,10 @@ Mốc thời gian chỉ là ước lượng cho một đội nhỏ 2–4 ngườ
 
 **Thời lượng dự kiến:** 3–5 tuần.
 
+**Trạng thái review 2026-08-29:** phần lớn capability đã có trong code. Phase chưa hoàn tất cho tới
+khi shared limiter, scheduler, alert, cleanup/reconciliation và privacy của telemetry được chứng minh
+trên environment pilot. Chi tiết evidence còn thiếu nằm ở Technical Phase 1 của architecture roadmap.
+
 **Phạm vi:**
 
 - Chuyển rate limit sang Redis/Upstash hoặc edge-compatible store.
@@ -152,6 +170,11 @@ Mốc thời gian chỉ là ước lượng cho một đội nhỏ 2–4 ngườ
 **Mục tiêu:** biến lời hứa “phòng tạm thời an toàn” thành thuộc tính kiến trúc, không chỉ là access control phía server.
 
 **Thời lượng dự kiến:** 6–10 tuần, cần security design review trước khi triển khai.
+
+**Điều chỉnh thực thi:** phạm vi này được chia thành Technical Phase 2 — Architecture boundary &
+Secure Access v2 và Technical Phase 3 — E2EE Secure Room. Access/lifecycle phải ổn định trước khi
+gắn crypto vào luồng hiện tại; ước lượng 6–10 tuần phải được lập lại sau threat-model prototype, không
+được dùng như cam kết cố định cho toàn bộ hai phase.
 
 **Phạm vi bắt buộc:**
 
@@ -353,6 +376,10 @@ Không khóa giá trước khi có dữ liệu usage và willingness-to-pay. Ưu
 
 ## 6. Kiến trúc sản phẩm mục tiêu
 
+Thiết kế thực thi được review tại [`ARCHITECTURE_ROADMAP.md`](./ARCHITECTURE_ROADMAP.md). Ba plane
+dưới đây là boundary logic và data-access boundary; chúng chưa phải ba microservice. Trong giai đoạn
+pilot, kiến trúc triển khai vẫn là modular monolith với web/BFF và bounded background worker.
+
 Luồng khái niệm:
 
 ```text
@@ -382,22 +409,23 @@ Mọi thay đổi lớn về key management, E2EE, AI access và retention phả
 ### Now
 
 - Discovery và paid pilot.
-- Analytics không thu content.
-- Production rate limit và cleanup observability.
-- Delete/revoke room.
-- Security language chính xác.
+- Kiểm chứng shared limiter, cron, cleanup/reconciliation và alert trên production-like environment.
+- Đo funnel/failure-rate thực tế và kiểm tra telemetry không chứa content/locator/token.
+- Threat model sơ bộ và ADR cho module boundary, owner/access, locator và metadata.
+- Chốt production exit gate của Giai đoạn 1; không đánh dấu hoàn tất chỉ dựa trên unit test.
 
 ### Next
 
-- E2EE và configurable expiry.
-- Workspace/owner tối thiểu.
+- Modularize room/access/evidence theo vertical slice; route mới không query Supabase trực tiếp.
+- Secure Access v2: locator ≥128 bit, access grant, revoke, configurable expiry và one-time atomic.
+- E2EE protocol và encrypted direct/resumable upload sau security review.
 - General files và guided checklist.
-- Webhook/ticket linking.
 - Local secret/PII detection và redaction preview.
 
 ### Later
 
 - Một help-desk integration có design partner.
+- Webhook/ticket linking qua transactional outbox.
 - AI completeness check và cited summary.
 - Billing, RBAC, team policy.
 - MSP branding và multi-client workspace.
@@ -464,29 +492,34 @@ Mọi thay đổi lớn về key management, E2EE, AI access và retention phả
 
 ## 10. Kế hoạch 90 ngày đề xuất
 
+Kế hoạch này là rolling plan từ baseline code ngày 2026-08-29. Mọi hạng mục sau gate discovery đều
+có điều kiện; không tiếp tục vì đã bước sang mốc ngày tiếp theo.
+
 ### Ngày 1–30
 
 - Hoàn tất 15–20 cuộc phỏng vấn và chọn một ICP.
-- Đo funnel privacy-safe của ClipSync hiện tại.
 - Chạy 3 pilot concierge.
-- Chốt threat model sơ bộ và E2EE architecture options.
 - Thu ít nhất hai cam kết trả phí/LOI.
+- Deploy/kiểm chứng migration 003–004, shared limiter, cron, reconcile, health và alert trên pilot.
+- Chạy deletion/storage failure drill; đo cleanup lag, upload/save failure và funnel privacy-safe.
+- Viết ADR cho module boundary, access model, locator/realtime và metadata classification.
 
 ### Ngày 31–60
 
-- Hoàn thiện production hardening quan trọng.
-- Prototype owner/revoke/expiry.
-- Prototype client-side encryption và local secret detection.
-- Tạo checklist template cho một use case duy nhất.
-- Đo time-to-first-evidence và recipient completion.
+- Chỉ bắt đầu nếu discovery và production gate đạt.
+- Tách vertical slice room/access/evidence khỏi route và `TextEditor` mà không đổi hành vi room v1.
+- Expand schema v2; prototype locator ≥128 bit, access grant, revoke/expiry và atomic one-time access.
+- Chốt threat model và test vector cho E2EE; prototype ciphertext envelope/direct upload có timebox.
+- Discovery checklist cho đúng một use case; chưa xây workflow tổng quát.
 
 ### Ngày 61–90
 
-- Chạy Secure Room MVP với design partners đã chọn.
-- Thử webhook hoặc integration mỏng với help desk phổ biến nhất của nhóm này.
-- Thử AI/local completeness assistant trên dữ liệu đã redacted.
-- Chốt pricing pilot, quota và success criteria cho quý tiếp theo.
-- Quyết định tiếp tục, thu hẹp hoặc đổi ICP dựa trên usage và payment thực tế.
+- Chỉ chạy E2EE pilot giới hạn nếu Secure Access v2 và security gate đạt; không dual-write plaintext.
+- Kiểm chứng DB/storage dump không đọc được room v2 và key không vào request/telemetry.
+- Thử local deterministic secret/PII detection; chưa gửi raw evidence tới LLM.
+- Đo time-to-first-evidence, recipient completion và evidence accepted trên design partner.
+- Chốt pricing pilot, quota và quyết định tiếp tục/thu hẹp/đổi ICP dựa trên usage và payment.
+- Không bắt đầu help-desk integration trước khi design partner xác nhận đúng một nền tảng ưu tiên.
 
 ## 11. Các câu hỏi còn mở
 

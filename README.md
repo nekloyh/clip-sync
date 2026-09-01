@@ -2,7 +2,10 @@
 
 **ClipSync** là ứng dụng chia sẻ clipboard / ghi chú tạm thời và ảnh chụp màn hình đa thiết bị không cần đăng nhập. Mở cùng URL trên 2 máy (laptop, PC, điện thoại) để tự động đồng bộ văn bản & ảnh realtime.
 
-Định hướng phát triển sản phẩm, kế hoạch Secure Support Handoff và backlog AI được mô tả tại [`docs/PRODUCT_ROADMAP.md`](./docs/PRODUCT_ROADMAP.md).
+Định hướng sản phẩm, Secure Support Handoff và backlog AI nằm tại
+[`docs/PRODUCT_ROADMAP.md`](./docs/PRODUCT_ROADMAP.md). Kế hoạch kiến trúc, refactor theo phase,
+migration strategy và quality gate nằm tại
+[`docs/ARCHITECTURE_ROADMAP.md`](./docs/ARCHITECTURE_ROADMAP.md).
 
 ---
 
@@ -10,7 +13,7 @@
 
 | Thành phần | Cách hoạt động |
 | --- | --- |
-| **URL phòng** | Là "mật khẩu" của phòng không đặt PIN. Slug có ~49 bit entropy (`quiet-fox-h7k2mq9d`), không thể dò được. |
+| **URL phòng** | Là "mật khẩu" của phòng không đặt PIN. Slug hiện có ~49 bit entropy (`quiet-fox-h7k2mq9d`), đủ giảm dò ngẫu nhiên ở MVP nhưng chưa phải credential dài hạn; roadmap nâng locator lên ≥128 bit và hash-at-rest. |
 | **anon key** | Nằm trong bundle trình duyệt nên coi như công khai. Nó **không có bất kỳ quyền nào trên bảng** — chỉ dùng cho Realtime broadcast/presence. |
 | **Mọi truy vấn DB / Storage** | Chạy phía server bằng `service_role` key, bên trong route handler đã kiểm tra quyền. |
 | **Quyền chủ phòng** | Người tạo phòng nhận một **owner capability 256-bit**, nằm trong một cookie httpOnly duy nhất `cs_owner` chứa capability của mọi phòng. Database chỉ giữ `sha256` của nó. Biết URL hoặc biết PIN **không** phải là quyền owner. Hạn 30 ngày, tự gia hạn mỗi lần owner mở phòng. |

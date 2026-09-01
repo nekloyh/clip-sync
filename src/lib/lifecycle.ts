@@ -170,15 +170,24 @@ export async function queueExpiredRooms(
 }
 
 /**
- * Take up to `batchSize` rooms off the queue and mark them `deleting`.
+ * Take up to `batchSize` rooms off the queue and lease them to this worker.
  *
- * The claim is the conditional UPDATE, not the SELECT: two workers reading the
- * same ids is fine, because only one of them can transition a given row out of
- * `deletion_pending`, and `select('id')` reports which rows that actually was.
+ * `deletion_requested_at` is the lease clock as well as the queue order. It
+ * starts as the moment deletion was asked for and is **rewritten on every
+ * claim**, so it means "the moment this room became available to a worker".
+ * That dual role is deliberate and it is what makes the visibility timeout
+ * real: without the rewrite, a room whose deletion was requested an hour ago
+ * looks stale the instant the first worker claims it, so a second worker
+ * concludes the first one died and takes the room off it. Ordering is
+ * unaffected — oldest-available-first is still oldest-request-first for a room
+ * nobody has touched — and a room that keeps failing drifts to the back of the
+ * queue instead of blocking the rooms behind it.
  *
- * `deleting` rooms whose worker died are re-claimed after `staleAfterMs`. A
- * crash between claiming and finishing would otherwise strand the room forever
- * in a state nothing scans — a leak with a stuck row pointing straight at it.
+ * The claim is the conditional UPDATE and nothing else. Both predicates live in
+ * SQL rather than in the filter above them, because a staleness test evaluated
+ * in JavaScript is a test against a row that may already have been claimed by
+ * the time the UPDATE runs. Two workers may read the same ids; only one of them
+ * can move a given row, and `select()` reports which rows that actually was.
  */
 export async function claimDeletionBatch(
   batchSize: number,
@@ -186,50 +195,86 @@ export async function claimDeletionBatch(
 ): Promise<Array<{ id: string; attempts: number }>> {
   const { staleAfterMs = 10 * 60_000, exclude } = options;
   const supabase = createAdminClient();
-  const staleBefore = new Date(Date.now() - staleAfterMs).toISOString();
+  const now = new Date();
+  const staleBefore = new Date(now.getTime() - staleAfterMs).toISOString();
 
   const { data: pending, error } = await supabase
     .from('rooms')
     .select('id, lifecycle_state, deletion_requested_at, deletion_attempts')
     .in('lifecycle_state', ['deletion_pending', 'deleting'])
     .lt('deletion_attempts', MAX_DELETION_ATTEMPTS)
-    // Oldest request first: a stable order is what makes "run it again to get
+    // Oldest available first: a stable order is what makes "run it again to get
     // the rest" actually work, instead of re-shuffling the same backlog.
     .order('deletion_requested_at', { ascending: true })
     .limit(batchSize);
 
   if (error) throw describeSchemaError(error);
 
-  const candidates = (pending ?? []).filter((row) => {
-    // Already attempted by the caller this run. Filtered *before* the claim,
-    // not after: claiming a room and then declining to process it would leave
-    // it parked in `deleting` with a fresh timestamp, which the staleness rule
-    // then protects from being re-claimed for the next ten minutes — a failure
-    // that delays its own retry.
-    if (exclude?.has(row.id as string)) return false;
-    if (row.lifecycle_state === 'deletion_pending') return true;
-    // Claimed by someone else recently: leave it to them.
-    return String(row.deletion_requested_at ?? '') < staleBefore;
-  });
+  // Already attempted by the caller this run. Filtered *before* the claim, not
+  // after: claiming a room and then declining to process it would leave it
+  // holding a fresh lease for the next ten minutes — a failure that delays its
+  // own retry.
+  const candidates = (pending ?? []).filter((row) => !exclude?.has(row.id as string));
   if (candidates.length === 0) return [];
 
-  const { data: claimed, error: claimErr } = await supabase
-    .from('rooms')
-    .update({ lifecycle_state: 'deleting' })
-    .in(
-      'id',
-      candidates.map((row) => row.id)
+  const lease = { lifecycle_state: 'deleting', deletion_requested_at: now.toISOString() };
+  const claimed: Array<{ id: string; attempts: number }> = [];
+
+  const queued = candidates
+    .filter((row) => row.lifecycle_state === 'deletion_pending')
+    .map((row) => row.id);
+
+  if (queued.length > 0) {
+    const { data, error: claimErr } = await supabase
+      .from('rooms')
+      .update(lease)
+      .in('id', queued)
+      // Re-asserted inside the write: a room another worker claimed between the
+      // SELECT and here is no longer `deletion_pending` and matches nothing.
+      .eq('lifecycle_state', 'deletion_pending')
+      .select('id, deletion_attempts');
+
+    if (claimErr) throw describeSchemaError(claimErr);
+    for (const row of data ?? []) {
+      claimed.push({ id: row.id as string, attempts: (row.deletion_attempts as number) ?? 0 });
+    }
+  }
+
+  // Rooms whose worker died mid-deletion. A crash between claiming and
+  // finishing would otherwise strand the room forever in a state nothing scans
+  // — a leak with a stuck row pointing straight at it.
+  const abandoned = candidates
+    .filter(
+      (row) =>
+        row.lifecycle_state === 'deleting' &&
+        String(row.deletion_requested_at ?? '') < staleBefore
     )
-    .in('lifecycle_state', ['deletion_pending', 'deleting'])
-    .select('id, deletion_attempts');
+    .map((row) => row.id);
 
-  if (claimErr) throw describeSchemaError(claimErr);
+  if (abandoned.length > 0) {
+    const { data, error: reclaimErr } = await supabase
+      .from('rooms')
+      .update(lease)
+      .in('id', abandoned)
+      .eq('lifecycle_state', 'deleting')
+      // The lease test, in SQL. A worker that renewed its lease between the
+      // SELECT and here keeps the room.
+      .lt('deletion_requested_at', staleBefore)
+      .select('id, deletion_attempts');
 
-  return (claimed ?? []).map((row) => ({
-    id: row.id as string,
-    attempts: (row.deletion_attempts as number) ?? 0,
-  }));
+    if (reclaimErr) throw describeSchemaError(reclaimErr);
+    for (const row of data ?? []) {
+      claimed.push({ id: row.id as string, attempts: (row.deletion_attempts as number) ?? 0 });
+    }
+  }
+
+  return claimed;
 }
+
+/** One page of a room's storage folder. Well above the 20-attachment cap. */
+const OBJECT_PAGE = 100;
+/** Pages swept per attempt. Beyond this the room is retried rather than half-emptied. */
+const MAX_OBJECT_PAGES = 10;
 
 /**
  * Destroy one room's data, in the only order that is safe to interrupt.
@@ -245,6 +290,17 @@ export async function claimDeletionBatch(
  *   - Deleting rows that are already deleted matches nothing and is a no-op.
  *   - The room row is removed last, so any interruption leaves a row that still
  *     points at whatever remains.
+ *
+ * Objects are found two ways, and the second is what makes the promise true.
+ * The attachment rows name the objects this room knows about; the room's
+ * storage folder names the objects it *has*. Those differ whenever an upload
+ * stored its object and then failed to write the row — the handler tries to
+ * remove the object again, and if that removal also fails, nothing references
+ * it any more. Sweeping only the rows would leave that object behind at the one
+ * moment the product promises the room's data is gone, and leave it there
+ * forever, since nothing retries what nothing can attribute. Everything under
+ * `<room_id>/` belongs to this room by construction, so the folder is the
+ * authority on what has to go.
  *
  * A failure writes a stable code and returns the room to the queue with its
  * attempt count incremented. It writes no provider message: a Storage error
@@ -268,11 +324,29 @@ export async function processRoomDeletion(
 
     if (listErr) throw listErr;
 
-    const paths = (rows ?? [])
+    let known = (rows ?? [])
       .map((row) => row.storage_path as string)
       .filter((path): path is string => Boolean(path));
 
-    if (paths.length > 0) {
+    // Sweep the folder until it comes back short, so a room holding more
+    // objects than one page still empties completely before its row goes.
+    for (let page = 0; page < MAX_OBJECT_PAGES; page++) {
+      const { data: objects, error: folderErr } = await supabase.storage
+        .from(ATTACHMENTS_BUCKET)
+        .list(roomId, { limit: OBJECT_PAGE });
+
+      // Not evidence of absence, and proceeding on it would delete the rows
+      // that say what is still there.
+      if (folderErr) {
+        throw Object.assign(folderErr, { errorCode: ErrorCode.STORAGE_DELETE_FAILED });
+      }
+
+      const found = (objects ?? []).map((object) => `${roomId}/${object.name}`);
+      const paths = [...new Set([...known, ...found])];
+      known = [];
+
+      if (paths.length === 0) break;
+
       const { error: removeErr } = await supabase.storage
         .from(ATTACHMENTS_BUCKET)
         .remove(paths);
@@ -280,7 +354,14 @@ export async function processRoomDeletion(
       // The one thing this must never do is proceed past a storage failure.
       // The rows below are the only record of which objects these were.
       if (removeErr) throw Object.assign(removeErr, { errorCode: ErrorCode.STORAGE_DELETE_FAILED });
-      deletedObjects = paths.length;
+      deletedObjects += paths.length;
+
+      if (found.length < OBJECT_PAGE) break;
+      if (page === MAX_OBJECT_PAGES - 1) {
+        throw Object.assign(new Error('room still holds objects'), {
+          errorCode: ErrorCode.STORAGE_DELETE_FAILED,
+        });
+      }
     }
 
     if ((rows ?? []).length > 0) {

@@ -72,7 +72,7 @@ phải tăng `EVENT_VERSION`, để query loại được các dòng ghi theo ng
 | `room_completed` | Owner chủ động đóng phòng | `owner` | — | mỗi phòng một lần |
 | `room_deleted` | Worker đã xóa xong dữ liệu thật | `system` | — | không — nhưng chỉ ghi khi thật sự xóa được row |
 | `room_expired` | TTL 7 ngày đưa phòng vào hàng đợi | `system` | — | mỗi phòng một lần |
-| `cleanup_failed` | Một lần dọn dẹp thất bại | `system` | `outcome: failure`, `error_code` | không — đếm được |
+| `cleanup_failed` | Một lần dọn dẹp thất bại: một phòng không xóa được (**có** `room_ref`), hoặc cả lần chạy đổ vỡ trước khi chạm tới phòng nào (**không** có `room_ref`) | `system` | `outcome: failure`, `error_code` | không — đếm được |
 
 ### Vì sao `room_completed` khác `room_deleted`
 
@@ -164,3 +164,123 @@ from (
 ) t
 where gap is not null;
 ```
+
+```sql
+-- Upload failure rate, tách theo lý do.
+--
+-- `attachment_uploaded` cố ý ghi cả thất bại, nên mẫu số ở đây là mọi lần thử.
+-- Tách theo `error_code` là chỗ phát hiện sản phẩm nằm: "liên tục đụng trần 5MB"
+-- và "liên tục gửi sai định dạng" là hai vấn đề khác nhau với hai cách sửa khác
+-- nhau, và gộp lại thành một tỷ lệ thì cả hai đều vô hình.
+select
+  date_trunc('week', occurred_at)                                as week,
+  count(*)                                                       as attempts,
+  count(*) filter (where outcome = 'failure')                    as failures,
+  round(
+    100.0 * count(*) filter (where outcome = 'failure') / nullif(count(*), 0),
+    1
+  )                                                              as failure_pct,
+  count(*) filter (where error_code = 'payload_too_large')        as too_large,
+  count(*) filter (where error_code = 'unsupported_media')        as wrong_type,
+  count(*) filter (where error_code = 'room_full')                as room_full,
+  count(*) filter (where error_code = 'upload_failed')            as storage_failed
+from analytics_events
+where event_name = 'attachment_uploaded' and event_version = 1
+group by 1
+order by 1 desc;
+```
+
+```sql
+-- Completion rate theo cohort tuần tạo phòng.
+--
+-- Cohort theo *tuần phòng được tạo*, không theo tuần sự kiện kết thúc xảy ra:
+-- một phòng tạo ngày Chủ nhật và hoàn tất ngày thứ Hai thuộc về cohort Chủ nhật,
+-- và nhóm theo tuần sự kiện sẽ tính nó là một phòng hoàn tất mà không có phòng
+-- nào được tạo tương ứng.
+--
+-- `expired` là mẫu số phủ định thật: phòng bị TTL thu hồi là phòng không ai đóng.
+-- Phòng chưa đạt trạng thái cuối nào thì vẫn đang mở, và không được tính vào cả
+-- hai phía — nếu không, mọi phòng tạo hôm nay đều bị tính là thất bại.
+with room_outcome as (
+  select
+    room_ref,
+    min(occurred_at) filter (where event_name = 'room_created')    as created_at,
+    bool_or(event_name = 'room_created')                           as created,
+    bool_or(event_name = 'second_device_joined')                   as joined,
+    bool_or(event_name = 'first_content_transferred')              as transferred,
+    bool_or(event_name = 'room_completed')                         as completed,
+    bool_or(event_name = 'room_expired')                           as expired
+  from analytics_events
+  where event_version = 1
+  group by room_ref
+)
+select
+  date_trunc('week', created_at)                                   as cohort_week,
+  count(*)                                                         as rooms,
+  count(*) filter (where joined)                                   as reached_second_device,
+  count(*) filter (where transferred)                              as reached_content,
+  count(*) filter (where completed)                                as completed,
+  count(*) filter (where expired)                                  as expired,
+  count(*) filter (where not completed and not expired)            as still_open,
+  round(
+    100.0 * count(*) filter (where completed)
+      / nullif(count(*) filter (where completed or expired), 0),
+    1
+  )                                                                as completion_pct
+from room_outcome
+where created
+group by 1
+order by 1 desc;
+```
+
+```sql
+-- Cleanup lag: từ lúc handoff được tuyên bố xong tới lúc bytes thật sự biến mất.
+--
+-- Đây là số mà việc tách `room_completed` khỏi `room_deleted` sinh ra để đo. Nó
+-- giãn ra nghĩa là hàng đợi xóa đang tồn đọng, và nó giãn ra *trước* khi
+-- `deletionQueue.pending` trở nên đáng báo động.
+select
+  percentile_cont(0.5) within group (order by extract(epoch from lag)) as median_seconds,
+  percentile_cont(0.95) within group (order by extract(epoch from lag)) as p95_seconds,
+  count(*)                                                             as rooms
+from (
+  select
+    max(occurred_at) filter (where event_name = 'room_deleted')
+      - max(occurred_at) filter (where event_name in ('room_completed', 'room_expired')) as lag
+  from analytics_events
+  where event_name in ('room_completed', 'room_expired', 'room_deleted')
+    and event_version = 1
+  group by room_ref
+) t
+where lag is not null and lag >= interval '0';
+```
+
+```sql
+-- Cleanup đang hỏng ở mức độ nào, và ở mức phòng hay mức cả lần chạy.
+--
+-- Dòng có `room_ref` là một phòng thất bại; dòng không có `room_ref` là cả một
+-- lần chạy đổ vỡ trước khi kịp chạm tới phòng nào.
+select
+  date_trunc('day', occurred_at)                as day,
+  count(*) filter (where room_ref is not null)  as room_failures,
+  count(*) filter (where room_ref is null)      as run_failures,
+  count(distinct room_ref)                      as distinct_rooms_affected
+from analytics_events
+where event_name = 'cleanup_failed' and event_version = 1
+group by 1
+order by 1 desc;
+```
+
+### Kiểm chứng retention thật sự đang chạy
+
+`prune_analytics_events()` được `/api/cron/cleanup` gọi mỗi lần chạy, và một lần
+gọi thất bại giờ sinh ra log `cleanup.analytics_prune_failed` (xem
+`docs/OPERATIONS.md` §5). Cách xác nhận độc lập:
+
+```sql
+select min(occurred_at) as oldest, now() - min(occurred_at) as age
+from analytics_events;
+```
+
+`age` vượt quá 180 ngày nghĩa là retention **không** được thực thi, dù mọi lần
+chạy cleanup đều báo cáo thành công.

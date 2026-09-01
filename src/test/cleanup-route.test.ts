@@ -21,6 +21,7 @@ vi.mock('@/lib/supabase/server', () => ({ createAdminClient: () => H.db.client()
 
 const { GET } = await import('@/app/api/cron/cleanup/route');
 const { MemoryAnalyticsSink, setAnalyticsSink } = await import('@/lib/analytics');
+const { setLogSink } = await import('@/lib/log');
 
 const SECRET = 'cron-secret-for-tests';
 const OLD = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -231,5 +232,70 @@ describe('running it twice', () => {
     expect(second).toMatchObject({ deletedRooms: 1, deletedObjects: 1 });
     expect(H.db.rows('rooms')).toEqual([]);
     expect(H.db.objects.size).toBe(0);
+  });
+});
+
+describe('retention', () => {
+  it('prunes analytics on every run', async () => {
+    // The retention window is enforced from inside the job that already runs
+    // hourly, rather than from a separate schedule nobody remembers to create.
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(opsRow()!.last_outcome).toBe('success');
+  });
+
+  it('reports a prune failure instead of swallowing it', async () => {
+    H.db.rpcFails = true;
+    const lines: Record<string, unknown>[] = [];
+    const restore = setLogSink((_level, line) => lines.push(line));
+
+    try {
+      const res = await GET(req());
+      expect(res.status).toBe(200);
+    } finally {
+      setLogSink(restore);
+    }
+
+    // PostgREST *returns* its failures. The previous version only wrapped this
+    // in try/catch, so a missing or renamed `prune_analytics_events` produced a
+    // resolved promise, an ignored error object, and a run that reported a
+    // retention policy it had not applied.
+    expect(lines.map((line) => line.event)).toContain('cleanup.analytics_prune_failed');
+  });
+
+  it('does not let a prune failure fail the run that deletes rooms', async () => {
+    H.db.rows('rooms').push(room('r1', { last_seen_at: OLD }));
+    H.db.rpcFails = true;
+
+    const body = await (await GET(req())).json();
+
+    // Telemetry housekeeping is the less important of the two jobs here.
+    expect(body).toMatchObject({ deletedRooms: 1 });
+    expect(opsRow()!.last_outcome).toBe('success');
+  });
+});
+
+describe('a run that collapses', () => {
+  it('records the failure in the operational row and in the funnel', async () => {
+    H.db.failingTable = 'rooms';
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(500);
+    expect(opsRow()!.last_outcome).toBe('failure');
+    // The most serious way cleanup fails used to be the only one the event
+    // catalog could not see: `cleanup_failed` was emitted per room, so a run
+    // that died before reaching any room left the funnel saying nothing had
+    // gone wrong.
+    expect(analytics.rows.filter((row) => row.event_name === 'cleanup_failed')).toHaveLength(1);
+  });
+
+  it('says nothing about the provider that broke', async () => {
+    H.db.failingTable = 'rooms';
+
+    const text = await (await GET(req())).text();
+
+    expect(text).not.toContain('database unavailable');
+    expect(text).not.toContain('XX000');
   });
 });

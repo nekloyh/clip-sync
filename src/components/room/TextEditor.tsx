@@ -18,6 +18,13 @@ import {
   fetchWithTimeout,
   type RequestFailure,
 } from '@/lib/request-failure';
+import {
+  createSaveQueue,
+  flushPendingSave,
+  saveRequestInit,
+  type SaveQueue,
+  type SaveSender,
+} from '@/lib/save-queue';
 import type { PendingUpload } from './AttachmentGrid';
 
 interface TextEditorProps {
@@ -90,12 +97,17 @@ export function TextEditor({
   const lastUpdatedAtRef = useRef<string>(initialRoom.updated_at || new Date(0).toISOString());
   const supabaseRef = useRef(createClient());
   const channelRef = useRef<RealtimeChannel | null>(null);
-  // Monotonic counter: an older save's response must never overwrite a newer
-  // one's `updated_at`, which the previous version allowed.
-  const saveSeqRef = useRef(0);
-  const appliedSeqRef = useRef(0);
   const dragDepthRef = useRef(0);
-  /** The exact text of the last failed save, for the retry button. */
+  /**
+   * The newest text this browser holds, saved or not.
+   *
+   * Every resend reads this rather than the copy that failed. The document is
+   * last-write-wins in full, so the newest version is always the correct thing
+   * to send, and sending anything older is a request to undo whatever came
+   * after it.
+   */
+  const latestContentRef = useRef<string>(initialRoom.content || '');
+  /** Whether there is anything to resend at all. */
   const failedContentRef = useRef<string | null>(null);
   const uploadSeqRef = useRef(0);
 
@@ -115,6 +127,7 @@ export function TextEditor({
   /** Applies remote content while keeping the caret roughly where it was. */
   const applyRemoteContent = useCallback((next: string, updatedAt: string) => {
     lastUpdatedAtRef.current = updatedAt;
+    latestContentRef.current = next;
 
     const textarea = textareaRef.current;
     const isFocused = textarea != null && textarea === document.activeElement;
@@ -171,44 +184,30 @@ export function TextEditor({
     [slug, router, applyRemoteContent]
   );
 
-  const performSave = useCallback(
+  /** One save, start to finish. Never called concurrently — see the queue below. */
+  const sendSave = useCallback(
     async (textToSave: string) => {
-      const seq = ++saveSeqRef.current;
-      pendingContentRef.current = null;
       setSaveStatus('saving');
 
       try {
         const res = await fetchWithTimeout(
           `/api/rooms/${slug}/save`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: textToSave }),
-          },
+          saveRequestInit(textToSave),
           SAVE_TIMEOUT_MS
         );
 
         const data = await res.json().catch(() => null);
 
         if (!res.ok) {
-          // A superseded save's failure is not this save's problem: a newer
-          // request is already in flight with newer text, and surfacing the old
-          // one would show an error for content that is about to be saved.
-          if (seq < appliedSeqRef.current) return;
-
           const failure = failureFromResponse(res.status, data, res.headers.get('Retry-After'));
-          // The exact text that did not land, kept verbatim. This is what the
-          // retry resends, and what stops a failed save from being a silent
-          // data loss the moment the tab closes.
+          // Marks that something is unsaved. The retry sends the newest text
+          // rather than this copy, so what matters here is the flag, not the
+          // string — but keeping the string makes the two paths readable.
           failedContentRef.current = textToSave;
           setSaveFailure(failure);
           setSaveStatus('error');
           return;
         }
-
-        // A response from a superseded request tells us nothing useful.
-        if (seq < appliedSeqRef.current) return;
-        appliedSeqRef.current = seq;
 
         failedContentRef.current = null;
         setSaveFailure(null);
@@ -224,7 +223,6 @@ export function TextEditor({
           payload: { clientId: clientIdRef.current, updated_at: newUpdatedAt },
         });
       } catch (err) {
-        if (seq < appliedSeqRef.current) return;
         failedContentRef.current = textToSave;
         setSaveFailure(
           failureFromThrown(err, typeof navigator === 'undefined' ? true : navigator.onLine)
@@ -235,11 +233,41 @@ export function TextEditor({
     [slug]
   );
 
-  /** Resend the exact text the last save could not deliver. */
+  /**
+   * The queue is created once and reads the current sender through a ref, so
+   * the ordering guarantee survives a re-render without the queue being rebuilt
+   * mid-flight.
+   */
+  const senderRef = useRef<SaveSender>(async () => {});
+  useEffect(() => {
+    senderRef.current = sendSave;
+  }, [sendSave]);
+
+  const queueRef = useRef<SaveQueue | null>(null);
+  if (queueRef.current === null) {
+    queueRef.current = createSaveQueue((text) => senderRef.current(text));
+  }
+
+  /**
+   * Hand text to the queue.
+   *
+   * Saves are serialised rather than fired as they are produced. The server
+   * keeps whichever write arrives last, so two overlapping requests mean the
+   * older text can land second and silently undo the newer one — which is
+   * exactly what a retry firing next to a debounced save used to do.
+   */
+  const performSave = useCallback((textToSave: string) => {
+    pendingContentRef.current = null;
+    // `sendSave` reports failure through component state rather than by
+    // throwing, so this catch is only here to keep a future sender that does
+    // throw from surfacing as an unhandled rejection.
+    queueRef.current?.submit(textToSave).catch(() => {});
+  }, []);
+
+  /** Resend after a failure — always the newest text, never the one that failed. */
   const retrySave = useCallback(() => {
-    const pending = failedContentRef.current;
-    if (pending === null) return;
-    void performSave(pending);
+    if (failedContentRef.current === null) return;
+    performSave(latestContentRef.current);
   }, [performSave]);
 
   const scheduleSave = useCallback(
@@ -263,35 +291,45 @@ export function TextEditor({
       showToast(`Đã cắt bớt nội dung vượt quá ${MAX_CHARS.toLocaleString()} ký tự`, 'error');
     }
 
+    latestContentRef.current = val;
     setContent(val);
     setSaveStatus('saving');
     scheduleSave(val);
   };
 
-  // Flush any pending save exactly once, on unmount. This used to only cancel
-  // the timer, which silently dropped up to a debounce window of typing every
-  // time someone navigated away — the last thing pasted being the thing most
-  // likely to be lost. `keepalive` is what lets the request outlive the page.
-  useEffect(() => {
-    return () => {
-      if (!saveTimeoutRef.current) return;
+  /** Send whatever the debounce is still holding, once, and stop the timer. */
+  const flushNow = useCallback(() => {
+    if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
-
-      const pending = pendingContentRef.current;
-      pendingContentRef.current = null;
-      if (pending === null) return;
-
-      void fetch(`/api/rooms/${slug}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: pending }),
-        keepalive: true,
-      }).catch(() => {
-        // Nothing left to tell: the component is gone.
-      });
-    };
+    }
+    const pending = pendingContentRef.current;
+    pendingContentRef.current = null;
+    flushPendingSave(slug, pending);
   }, [slug]);
+
+  /**
+   * Do not lose the debounce window when the page goes away.
+   *
+   * This used to live only in an unmount cleanup, which sounds like the same
+   * thing and is not: React runs cleanups when a component unmounts, and
+   * closing a tab, reloading, or following a link to another site unmounts
+   * nothing at all. So the one case the guard was written for — someone pastes
+   * a log and immediately closes the tab — was the one case it did not cover,
+   * and up to 500ms of typing disappeared without a word.
+   *
+   * `pagehide` rather than `beforeunload`: it is the event that actually fires
+   * on mobile Safari, and it also fires when a page enters the back/forward
+   * cache. The unmount path stays for in-app navigation.
+   */
+  useEffect(() => {
+    const onPageHide = () => flushNow();
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      flushNow();
+    };
+  }, [flushNow]);
 
   // Realtime: presence + change pings only.
   useEffect(() => {

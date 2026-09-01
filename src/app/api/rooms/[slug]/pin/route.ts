@@ -169,7 +169,12 @@ async function handleVerify(
       await createAdminClient()
         .from('rooms')
         .update({ pin_hash: effectiveHash })
-        .eq('id', room.id);
+        .eq('id', room.id)
+        // Scoped like every other write in the codebase. The room can be queued
+        // for deletion between the read above and this write, and an upgrade
+        // that lands on a room on its way out is the one exception that gets
+        // copied the next time somebody adds an endpoint.
+        .eq('lifecycle_state', 'active');
     } catch (err) {
       console.error('[clipsync] legacy PIN upgrade failed', err);
       effectiveHash = room.pin_hash;

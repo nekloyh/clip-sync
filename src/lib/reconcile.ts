@@ -35,8 +35,11 @@ import { roomRef } from './pseudonym';
 
 export interface ReconcileReport {
   scannedRooms: number;
+  /** Drift seen this run, whether or not it was already on record. */
   dbWithoutObject: number;
   objectWithoutDb: number;
+  /** Findings this run added. Zero with non-zero drift means "same as yesterday". */
+  recorded: number;
   hasMore: boolean;
 }
 
@@ -54,9 +57,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function reconcile(batchSize = 100): Promise<ReconcileReport> {
   const supabase = createAdminClient();
 
-  const { data: folders } = await supabase.storage
+  // A failure here is not "nothing to report", it is "nothing was looked at",
+  // and the two are indistinguishable in a report that says `success` with zero
+  // findings. Throwing lets the route record the run as a failure, which is the
+  // honest answer at the moment there is most to find.
+  const { data: folders, error: folderErr } = await supabase.storage
     .from(ATTACHMENTS_BUCKET)
     .list('', { limit: batchSize, sortBy: { column: 'name', order: 'asc' } });
+
+  if (folderErr) throw new Error('reconcile: could not list the attachments bucket');
 
   // Objects are laid out as `<room_id>/<uuid>.<ext>`, so a top-level entry that
   // is not a UUID was not created by this application. It is left strictly
@@ -87,11 +96,13 @@ export async function reconcile(batchSize = 100): Promise<ReconcileReport> {
   // The other direction: rows whose object is gone. Checked per room folder so
   // this costs one `list` per room rather than one `download` per attachment.
   let dbWithoutObject = 0;
-  const { data: rows } = await supabase
+  const { data: rows, error: rowsErr } = await supabase
     .from('attachments')
     .select('id, room_id, storage_path')
     .order('created_at', { ascending: true })
     .limit(batchSize);
+
+  if (rowsErr) throw new Error('reconcile: could not read attachment rows');
 
   const byRoom = new Map<string, Array<{ id: string; path: string }>>();
   for (const row of rows ?? []) {
@@ -125,14 +136,16 @@ export async function reconcile(batchSize = 100): Promise<ReconcileReport> {
     }
   }
 
-  if (findings.length > 0) {
-    const { error } = await supabase.from('reconciliation_findings').insert(findings);
-    if (error) {
-      log.warn({ event: 'reconcile.write_failed', outcome: 'failure', findings: findings.length });
-    }
-  }
-
   const objectWithoutDb = findings.length - dbWithoutObject;
+
+  // Record only drift that is not already on the books.
+  //
+  // Without this, a single orphaned object becomes one new row every night, and
+  // the alert in docs/OPERATIONS.md — "open findings rising steadily" — fires on
+  // the reconciler duplicating itself rather than on anything drifting. The
+  // dedupe key is the finding, not the run: the same object, still orphaned
+  // tomorrow, is the same fact.
+  const recorded = findings.length > 0 ? await recordNewFindings(findings) : 0;
 
   log.info({
     event: 'reconcile.completed',
@@ -145,8 +158,65 @@ export async function reconcile(batchSize = 100): Promise<ReconcileReport> {
     scannedRooms: roomIds.length,
     dbWithoutObject,
     objectWithoutDb,
+    recorded,
     hasMore: roomIds.length === batchSize || (rows ?? []).length === batchSize,
   };
+}
+
+type Finding = { kind: string; room_ref: string; attachment_id: string | null };
+
+const identity = (finding: Finding) =>
+  `${finding.kind}|${finding.room_ref}|${finding.attachment_id ?? ''}`;
+
+/** Inserts the findings that are not already open, and reports how many that was. */
+async function recordNewFindings(findings: Finding[]): Promise<number> {
+  const supabase = createAdminClient();
+  const refs = [...new Set(findings.map((finding) => finding.room_ref))];
+
+  const { data: open, error: readErr } = await supabase
+    .from('reconciliation_findings')
+    .select('kind, room_ref, attachment_id')
+    .is('resolved_at', null)
+    .in('room_ref', refs);
+
+  // A read failure must not turn into a duplicate write. Reporting nothing new
+  // this run is recoverable; doubling the queue an operator is triaging is the
+  // failure this whole function exists to prevent.
+  if (readErr) {
+    log.warn({ event: 'reconcile.write_failed', outcome: 'failure', findings: findings.length });
+    return 0;
+  }
+
+  const known = new Set((open ?? []).map((row) => identity(row as Finding)));
+  const fresh = findings.filter((finding) => !known.has(identity(finding)));
+  if (fresh.length === 0) return 0;
+
+  const { error } = await supabase.from('reconciliation_findings').insert(fresh);
+  if (error) {
+    log.warn({ event: 'reconcile.write_failed', outcome: 'failure', findings: fresh.length });
+    return 0;
+  }
+
+  return fresh.length;
+}
+
+/**
+ * How many findings are open in total.
+ *
+ * Separate from {@link openFindings} because the two answer different
+ * questions and conflating them broke the alert: the ops endpoint used to
+ * report the *length of the first page* as the open count, so the number an
+ * operator watches for "rising steadily" saturated at the page size and never
+ * moved again.
+ */
+export async function countOpenFindings(): Promise<number> {
+  const { count, error } = await createAdminClient()
+    .from('reconciliation_findings')
+    .select('id', { count: 'exact', head: true })
+    .is('resolved_at', null);
+
+  if (error) throw error;
+  return count ?? 0;
 }
 
 /** Open findings, newest first, for the protected ops endpoint. */
