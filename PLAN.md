@@ -74,7 +74,7 @@ screen capture".
 
 | Feature branch | Nội dung | DoD |
 |---|---|---|
-| `feature/restore-discovery-docs` | Cherry-pick `docs/discovery`, `docs/qa` từ `legacy/2026-09-pilot-readiness-wip` | Docs trên `dev`, link từ README |
+| `feature/restore-discovery-docs` | Cherry-pick `docs/discovery`, `docs/qa` từ `legacy/2026-09-pilot-readiness-wip` | Docs trên `develop`, link từ README |
 | `feature/pilot-hardening` | Review + cherry-pick phần lifecycle/reconcile/cron WIP từ legacy (bỏ phần chưa chín) | Typecheck/lint/test/build xanh; test mới pass; không còn diff "mồ côi" |
 | `feature/save-queue` | Đánh giá save-queue WIP: hoàn thiện hoặc bỏ hẳn (quyết định trong 4 h đầu) | Hoặc merge với test đầy đủ, hoặc ghi "rejected" vào FREEZE_NOTES |
 | (đã xong ở bootstrap) | CI workflow, CONTRIBUTING, PLAN | CI xanh trên `dev` |
@@ -125,7 +125,7 @@ key trong URL fragment, independent security review trước khi quảng cáo E2
 - **Branch protection (chờ phê duyệt để apply):**
   - `main`: require PR, require status check `verify`, block force-push,
     block deletion.
-  - `dev`: require status check `verify`, block force-push.
+  - `develop`: require status check `verify`, block force-push.
   - Approval count 0 (solo) — nâng 1 khi có collaborator.
 
 ```bash
@@ -136,7 +136,7 @@ gh api -X PUT repos/nekloyh/clip-sync/branches/main/protection \
   -F enforce_admins=false \
   -F required_pull_request_reviews[required_approving_review_count]=0 \
   -F restrictions= -F allow_force_pushes=false -F allow_deletions=false
-gh api -X PUT repos/nekloyh/clip-sync/branches/dev/protection \
+gh api -X PUT repos/nekloyh/clip-sync/branches/develop/protection \
   -F required_status_checks[strict]=true \
   -F "required_status_checks[contexts][]=verify" \
   -F enforce_admins=false -F restrictions= \
@@ -180,6 +180,9 @@ gh api -X PUT repos/nekloyh/clip-sync/branches/dev/protection \
   (+ `FREEZE_NOTES.md`), đã push.
 - Baseline `main` = `72f13ca` (develop cũ): typecheck + 295 test + lint +
   build đều xanh, verify ngày 2026-09-01. Tag `v0.2.0`.
-- `dev` tạo từ `main`; mô hình branch trong CONTRIBUTING.md.
-- Không branch/commit nào bị xoá. Việc xoá `develop` (đã được thay bằng
-  `dev`) chờ phê duyệt riêng.
+- `develop` giữ vai trò branch integration (quyết định của owner 2026-09-01,
+  thay cho phương án tạo branch `dev` mới); mô hình branch trong
+  CONTRIBUTING.md. Branch `dev` tạm thời trong quá trình chuẩn hoá đã được xoá
+  (không chứa commit riêng nào).
+- Kickoff prompt + khuyến nghị model/effort cho từng phase: xem
+  [KICKOFF.md](./KICKOFF.md).
