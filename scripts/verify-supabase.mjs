@@ -290,13 +290,20 @@ try {
   const probeRef = createHash('sha256').update(randomBytes(16)).digest('hex').slice(0, 32);
   analyticsRefs.push(probeRef);
 
+  // A plain insert, because that is what the sink does and why. The index is
+  // partial, so `on conflict (room_ref, event_name)` cannot be inferred from it
+  // and PostgREST cannot supply the predicate that would make it inferrable -
+  // the upsert this loop used to perform failed every time with 42P10 and wrote
+  // nothing at all, which is the bug this check was written to notice and then
+  // reproduced itself.
+  const onceCodes = [];
   for (let i = 0; i < 3; i++) {
-    await db
+    const { error } = await db
       .from('analytics_events')
-      .upsert(
-        [{ event_name: 'second_device_joined', event_version: 1, room_ref: probeRef, actor: 'recipient' }],
-        { onConflict: 'room_ref,event_name', ignoreDuplicates: true }
-      );
+      .insert([
+        { event_name: 'second_device_joined', event_version: 1, room_ref: probeRef, actor: 'recipient' },
+      ]);
+    onceCodes.push(error?.code ?? null);
   }
 
   const { count: onceCount } = await db
@@ -309,6 +316,15 @@ try {
     'the unique index collapses a repeated once-per-room event into one row',
     onceCount === 1,
     `got ${onceCount} rows`
+  );
+
+  // The sink swallows exactly this code and rethrows everything else, so if
+  // hosted Postgres ever reported a duplicate as something other than 23505 the
+  // funnel would start losing stages to a rethrown "failure" that never was.
+  check(
+    'a repeat arrives as 23505, the one code the sink treats as already-recorded',
+    onceCodes[0] === null && onceCodes[1] === '23505' && onceCodes[2] === '23505',
+    `got ${JSON.stringify(onceCodes)}`
   );
 
   // And the other half: a countable event must NOT be collapsed, or a room with
@@ -343,10 +359,14 @@ try {
   // reports a missing or unpermitted function by *returning* an error, so a
   // half-applied migration 004 is a retention policy that quietly never runs.
   //
-  // Called with a window far wider than any row this project holds, so it
-  // deletes nothing: this check is safe to point at production.
+  // A century back: far wider than any row this project holds, so it deletes
+  // nothing and this check is safe to point at production. Not wider than that,
+  // though - the function computes `now() - make_interval(days => n)`, and the
+  // 10,000-year window this used to pass put the cutoff before 4713 BC, so the
+  // call failed with "timestamp out of range" and reported a perfectly healthy
+  // retention policy as missing.
   const { error: pruneErr } = await db.rpc('prune_analytics_events', {
-    retain_days: 3650000,
+    retain_days: 36500,
   });
 
   check(

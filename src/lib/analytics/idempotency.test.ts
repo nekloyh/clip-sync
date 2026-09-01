@@ -21,10 +21,26 @@ vi.hoisted(() => {
   process.env.CLIPSYNC_AUTH_SECRET = 'test-secret-for-analytics-at-least-32-chars';
 });
 
-vi.mock('@/lib/supabase/server', () => ({ createAdminClient: () => ({}) }));
+const db = vi.hoisted(() => ({ insert: vi.fn() }));
+
+vi.mock('@/lib/supabase/server', () => ({
+  createAdminClient: () => ({
+    from: () => ({
+      insert: db.insert,
+      // Not a stub of a method that exists: reaching for the conflict-target
+      // shortcut against a *partial* unique index is the defect itself, and it
+      // fails as 42P10 at runtime where `track` swallows it. Fail loudly here
+      // instead of letting a test pass on a call production cannot make.
+      upsert: () => {
+        throw new Error('upsert cannot infer a partial index; use insert and tolerate 23505');
+      },
+    }),
+  }),
+}));
 
 const {
   MemoryAnalyticsSink,
+  SupabaseAnalyticsSink,
   setAnalyticsSink,
   resetAnalyticsMemo,
   track,
@@ -160,6 +176,69 @@ describe('trackOnce', () => {
     }
 
     expect(names().filter((n) => n === 'second_device_joined')).toHaveLength(1);
+  });
+});
+
+/**
+ * The sink that actually talks to Postgres.
+ *
+ * Everything above runs against `MemoryAnalyticsSink`, which reimplements the
+ * dedup rule in JavaScript — so it proves the rule and nothing about the
+ * statement that enforces it. That gap is where a real defect lived: the sink
+ * asked for `on conflict (room_ref, event_name)`, which a partial index cannot
+ * satisfy, so every once-per-room write failed with 42P10 and `track` logged it
+ * and moved on. All five funnel stages recorded zero rows, in a suite that was
+ * entirely green.
+ */
+describe('SupabaseAnalyticsSink', () => {
+  const sink = () => new SupabaseAnalyticsSink();
+  const join = { name: EVENTS.SECOND_DEVICE_JOINED, roomRef: REF_A, actor: 'recipient' } as const;
+  const upload = {
+    name: EVENTS.ATTACHMENT_UPLOADED,
+    roomRef: REF_A,
+    actor: 'recipient',
+    sizeBucket: 'lt_1mb',
+    mimeCategory: 'image',
+  } as const;
+
+  beforeEach(() => {
+    db.insert.mockReset();
+    db.insert.mockResolvedValue({ error: null });
+  });
+
+  it('writes a once-per-room event with a plain insert', async () => {
+    await sink().record(join);
+
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(db.insert).toHaveBeenCalledWith([
+      expect.objectContaining({ event_name: 'second_device_joined', room_ref: REF_A }),
+    ]);
+  });
+
+  it('treats the unique-index duplicate as the stage having been recorded already', async () => {
+    db.insert.mockResolvedValue({
+      error: { code: '23505', message: 'duplicate key value violates unique constraint' },
+    });
+
+    await expect(sink().record(join)).resolves.toBeUndefined();
+  });
+
+  it('still surfaces any other write failure', async () => {
+    // The one that must never be mistaken for a duplicate: migration 004 not
+    // applied. Swallowing it would report a healthy funnel that records nothing.
+    db.insert.mockResolvedValue({
+      error: { code: '42P01', message: 'relation "analytics_events" does not exist' },
+    });
+
+    await expect(sink().record(join)).rejects.toMatchObject({ code: '42P01' });
+  });
+
+  it('does not swallow 23505 for a countable event', async () => {
+    // No unique index covers `attachment_uploaded`, so a duplicate there is not
+    // idempotency working - it is something wrong that should be seen.
+    db.insert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+
+    await expect(sink().record(upload)).rejects.toMatchObject({ code: '23505' });
   });
 });
 

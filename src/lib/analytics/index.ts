@@ -25,11 +25,11 @@ export interface AnalyticsSink {
 /**
  * Postgres, in the same project as everything else.
  *
- * Writes are `on conflict do nothing`, which is where idempotency actually
- * lives: the unique index on `(room_ref, event_name)` for once-per-room events
- * is what makes a reconnect, a retry and two concurrent instances collapse into
- * one row. Nothing here reads before writing, because a read-then-write guard
- * loses every one of those races.
+ * Idempotency lives in the partial unique index on `(room_ref, event_name)`,
+ * not here: it is what makes a reconnect, a retry and two concurrent instances
+ * collapse into one row. This class's only part in it is writing plainly and
+ * treating the resulting duplicate as success. Nothing here reads before
+ * writing, because a read-then-write guard loses every one of those races.
  */
 export class SupabaseAnalyticsSink implements AnalyticsSink {
   readonly kind = 'supabase';
@@ -40,15 +40,28 @@ export class SupabaseAnalyticsSink implements AnalyticsSink {
 
     const table = createAdminClient().from('analytics_events');
 
-    // `ignoreDuplicates` is PostgREST's ON CONFLICT DO NOTHING. Without it a
-    // duplicate arrives as a 23505 the caller has to catch and tell apart from
-    // a real failure - and "was this the second time?" is not something this
-    // code needs to know, only something it must not double-count.
-    const { error } = ONCE_PER_ROOM.has(event.name)
-      ? await table.upsert([row], { onConflict: 'room_ref,event_name', ignoreDuplicates: true })
-      : await table.insert([row]);
+    // A plain insert for both kinds, deliberately, because
+    // `uq_analytics_once_per_room` is a *partial* index. Postgres will not
+    // infer a conflict target from a partial index unless the statement
+    // repeats its `where` predicate, and PostgREST has no way to express that
+    // - so asking for `on conflict (room_ref, event_name)` here does not
+    // deduplicate anything. It fails the whole insert with 42P10, and `track`
+    // swallows that into a log line, which means every once-per-room event
+    // silently never lands and the funnel reports zero for all five stages.
+    //
+    // The index still does exactly its job on a plain insert; the second write
+    // just arrives as a 23505 instead of being absorbed.
+    const { error } = await table.insert([row]);
 
-    if (error) throw error;
+    if (!error) return;
+
+    // For these events the duplicate *is* the success case: another request,
+    // another instance or a second cron pass already recorded this stage. Only
+    // this one code, and only for these events - anything else is a real
+    // failure and must still reach `track`'s log.
+    if (ONCE_PER_ROOM.has(event.name) && error.code === '23505') return;
+
+    throw error;
   }
 }
 

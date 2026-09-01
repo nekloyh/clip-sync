@@ -9,6 +9,58 @@ sử của chúng nằm trong `git log`.
 
 ---
 
+## [1.0.0] — 2026-09-01 — **FROZEN**
+
+Phase P của [PLAN.md](./PLAN.md) §3: đưa ClipSync lên chạy thật, rồi **đóng băng**.
+
+`1.0.0` không đánh dấu một bộ feature mới — feature đã đủ từ `0.3.0`. Nó đánh dấu
+thời điểm phần mềm **thật sự chạy được trên hạ tầng thật**, việc mà `0.3.0` chưa
+từng làm được: lần deploy production của nó fail, và không ai biết vì cả ba nguyên
+nhân đều im lặng theo cách riêng.
+
+Sau bản này repo ở trạng thái **FROZEN** — dùng cá nhân, chỉ sửa khi hỏng thực tế
+hoặc có lỗi security. Điều kiện mở lại: xem banner [PLAN.md](./PLAN.md).
+
+### Không cần migration cho ai đã chạy đủ 001–004
+
+Không có file migration mới. Nhưng nếu project Supabase của bạn mới chạy tới `002`
+— đúng tình trạng của deployment này trước bản release — thì **phải chạy `003` và
+`004` trước khi deploy**. Cả hai đều additive và idempotent.
+
+### Đã sửa
+
+| | Sửa gì | Vì sao nó nghiêm trọng |
+| --- | --- | --- |
+| **Funnel** | `SupabaseAnalyticsSink` hỏi PostgREST `on conflict (room_ref, event_name) do nothing`, nhưng `uq_analytics_once_per_room` là **partial index**. Postgres không suy được conflict target từ partial index trừ khi câu lệnh lặp lại `where` predicate — điều supabase-js không diễn đạt được | Mọi write once-per-room fail `42P10`, và `track()` **cố tình** nuốt lỗi sink vào log để telemetry không làm hỏng request người dùng. Kết quả: **cả 5 stage của funnel ghi 0 row** trong khi deployment trông hoàn toàn khỏe mạnh. Nay insert thuần và coi `23505` là "stage đã ghi rồi" — chỉ cho once-per-room; duplicate trên event đếm được vẫn phải nổi lên |
+| **Cron** | `vercel.json` khai báo cleanup mỗi giờ. Vercel Hobby chỉ cho cron theo ngày | Không phải cảnh báo — nó làm **fail cả deployment production**, trong khi preview vẫn xanh vì Vercel chỉ đăng ký cron cho production. Đây là lý do `v0.3.0` không bao giờ lên được production |
+| **verify-supabase** | Script tái tạo đúng cái upsert hỏng ở trên, nên báo một database khỏe mạnh là hỏng. Và nó probe `prune_analytics_events` với cửa sổ 10.000 năm, đẩy `now() - make_interval(...)` về trước 4713 BC → `timestamp out of range` | Một script verify báo sai là tệ hơn không có script: nó dạy người ta bỏ qua kết quả của chính nó |
+
+### Đã thêm
+
+- Test đầu tiên cho `SupabaseAnalyticsSink`. Trước đó suite chỉ chạy
+  `MemoryAnalyticsSink` — một bản reimplement luật dedup bằng JavaScript — nên
+  **346 test xanh chưa từng chạm tới câu lệnh SQL thật**. Mock mới có `upsert`
+  ném lỗi, để ai viết lại theo lối cũ sẽ đỏ ngay thay vì đỏ trong im lặng.
+- `verify:supabase` thêm một check ghim rằng bản ghi lặp trả về đúng `23505` —
+  mã lỗi mà sink giờ phụ thuộc vào.
+
+### Ghi chú triển khai 1.0.0
+
+- **Env bắt buộc, đủ 5:** `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `CLIPSYNC_AUTH_SECRET`, `CRON_SECRET`. Thiếu bất kỳ cái nào thì
+  `GET /api/health` trả `503` và nói rõ subsystem nào hỏng — dùng nó thay cho đoán.
+- **Env vars chỉ có hiệu lực ở deployment mới.** Thêm biến trên Vercel xong phải
+  redeploy; deployment đang chạy giữ nguyên bộ biến nạp lúc nó được tạo.
+- **Rate limiter:** `rateLimiter: not_configured` là **cảnh báo, không phải lỗi** —
+  hợp lệ cho deployment một người. Chỉ set
+  `CLIPSYNC_REQUIRE_DISTRIBUTED_LIMITER=1` khi đã thật sự có Upstash, nếu không
+  `/api/health/ready` sẽ fail vĩnh viễn.
+- **Cron chỉ chạy trên production.** Trên preview, phòng đã bấm xóa nằm ở
+  `deletion_pending` cho tới khi gọi `/api/cron/cleanup` bằng tay.
+
+---
+
 ## [0.3.0] — 2026-09-01
 
 Phase A của [PLAN.md](./PLAN.md) §3: chuẩn hoá quy trình, khôi phục có chọn lọc
