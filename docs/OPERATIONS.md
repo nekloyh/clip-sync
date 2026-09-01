@@ -87,6 +87,45 @@ rồi crash" là lý do phổ biến nhất khiến có retry).
 `deletion_pending`, tức là claim được ngay; không loại trừ thì vòng lặp sẽ đốt
 sạch 5 lượt retry trong vài giây vào một sự cố storage vẫn còn nguyên ở đó.
 
+**Worker quét tới khi listing trả về rỗng, không phải tới khi lệnh xóa không
+báo lỗi.** Storage báo một lần xóa *thành công một phần* bằng cách trả về danh
+sách những object nó đã xóa, và để `error` trống. Vì vậy "lệnh remove không lỗi"
+là một sự thật yếu hơn "thư mục đã rỗng", và chỉ sự thật thứ hai mới cho phép
+xóa các attachment row — thứ duy nhất ghi lại phòng đã có những object nào. Xác
+nhận rỗng tốn thêm một lần `list`; đổi lại, một lần xóa hụt sẽ đưa phòng về hàng
+đợi thay vì bỏ lại object mồ côi vĩnh viễn.
+
+Hệ quả: `deletedObjects` trong log `room.deleted` và trong `ops_runs` đếm những
+object **Storage báo đã xóa**, không phải số path được yêu cầu xóa — hai con số
+lệch nhau khi một attachment row trỏ tới object đã biến mất từ trước.
+
+**Worker cũng xóa mọi object nằm dưới `<room_id>/`, không chỉ object có row trỏ
+tới.** Attachment row nói phòng *biết* những object nào; thư mục storage nói
+phòng *có* những object nào. Hai tập này lệch nhau khi một upload đã ghi object
+rồi ghi row thất bại và lần xóa bù cũng thất bại — object đó không còn ai tham
+chiếu, nên một lần quét chỉ dựa vào row sẽ bỏ nó lại đúng vào lúc sản phẩm tuyên
+bố dữ liệu của phòng đã biến mất, và bỏ lại vĩnh viễn: không có gì retry được thứ
+không quy được về đâu.
+
+### Lease của worker
+
+`deletion_requested_at` vừa là thứ tự hàng đợi vừa là **đồng hồ lease**. Nó bắt
+đầu là thời điểm xóa được yêu cầu, và **được ghi lại mỗi lần claim**, nên ý nghĩa
+của nó là "phòng sẵn sàng cho một worker từ lúc này".
+
+Điều đó là cần thiết chứ không phải tinh chỉnh: cron chạy hằng giờ, nên một phòng
+được yêu cầu xóa lúc 10:00 và được worker nhìn thấy lúc 11:00 đã "cũ hơn 10 phút"
+ngay tại thời điểm claim. Nếu claim không làm mới mốc thời gian, worker thứ hai
+sẽ kết luận worker thứ nhất đã chết và cướp phòng khỏi nó.
+
+Cả hai điều kiện — "còn ở `deletion_pending`" và "lease đã quá hạn" — nằm trong
+chính câu `UPDATE`, không nằm trong code lọc phía trên nó. Một phép kiểm tra chạy
+trong ứng dụng là phép kiểm tra trên trạng thái *trước khi* worker kia ghi.
+
+Hệ quả vận hành: mốc thời gian yêu cầu xóa ban đầu **không** được giữ lại sau lần
+claim đầu tiên. Con số cần theo dõi là `deletionQueue.pending`, không phải tuổi
+của một dòng cụ thể.
+
 Xóa thủ công và hết hạn dùng **chung một đoạn code**. Trước đây là hai đường,
 sai theo hai kiểu khác nhau.
 
@@ -139,6 +178,20 @@ shared cache là nơi IP hoặc slug sẽ tồn tại ngoài database, người 
 của limiter cố tình **vứt bỏ** exception, vì thông điệp của cache client trích
 dẫn lệnh đã lỗi, và lệnh đó chứa key.
 
+### Yêu cầu triển khai: proxy phải gửi địa chỉ client
+
+`clientIdentity` đọc `x-forwarded-for` rồi `x-real-ip`, và lùi về hằng số
+`unknown` khi không có header nào. Trên Vercel điều này luôn có sẵn. Sau một
+reverse proxy tự dựng mà **không** cấu hình hai header đó, mọi người dùng chia
+nhau đúng một bucket — với `pin_verify` nghĩa là toàn bộ deployment có 10 lần thử
+PIN mỗi 10 phút.
+
+Hướng lệch ở đây là *chặt hơn*, không phải lỏng hơn, nên đây là lỗi khả dụng chứ
+không phải lỗ hổng — và nó cố ý không được "sửa" bằng cách lùi về một identity
+ngẫu nhiên, vì như vậy là đổi một vấn đề vận hành lấy một lỗ brute-force. Khi tự
+host, hãy cấu hình proxy gửi `x-forwarded-for`, và kiểm tra bằng cách xem hai
+client khác nhau có tiêu cùng một ngân sách hay không.
+
 ## 5. Alert tối thiểu khi deploy
 
 | Alert | Điều kiện | Ý nghĩa |
@@ -149,7 +202,16 @@ dẫn lệnh đã lỗi, và lệnh đó chứa key.
 | **Xóa thất bại** | `deletionQueue.failed > 0` | Có phòng đã hết retry mà dữ liệu vẫn còn. Cần người xử lý |
 | **Lệch DB/storage** | `reconciliation.openFindings` tăng đều | Upload hoặc xóa đang đứt giữa chừng |
 | **Limiter suy giảm** | Có log `rate_limit.store_unavailable` | Redis sự cố; verify PIN đang từ chối |
+| **Retention không chạy** | Có log `cleanup.analytics_prune_failed` | Cửa sổ 180 ngày của analytics **không** được thực thi. Kiểm tra `prune_analytics_events` có tồn tại và có quyền |
+| **Reconcile đổ vỡ** | `jobs[reconcile].last_outcome = 'failure'` | Không quét được gì. Khác hẳn "quét xong, sạch" |
+| **Reconcile đếm hụt** | Có log `reconcile.count_failed` | Quét xong nhưng không đọc được tổng số finding đang mở. `pendingWork` của lần chạy đó lùi về số finding *lần chạy này nhìn thấy*, nên có thể thấp hơn thực tế. **Không** phải sự cố Storage |
+| **Lease không nhả được** | Có log `room.deletion_release_failed` | Worker thất bại nhưng không ghi được trạng thái trả phòng. Phòng sẽ được thu hồi sau 10 phút; nếu lặp lại, kiểm tra quyền ghi bảng `rooms` |
 | **Lỗi 5xx** | Log `level: error` với `errorCode` bất kỳ | Dùng `requestId` để nối các dòng của cùng một request |
+
+`reconciliation.openFindings` là **tổng số finding đang mở**, đếm bằng một truy
+vấn riêng chứ không phải độ dài trang hiển thị trong `recent` (tối đa 20). Trước
+đây nó lấy độ dài trang, nên chỉ số mà alert này theo dõi bão hòa ở 20 và không
+bao giờ tăng nữa — mù đúng từ ngưỡng nó được viết ra để nhìn.
 
 Lấy số liệu:
 
@@ -182,6 +244,26 @@ Chỉ là *ứng viên*, không phải kết luận. Một object không có row
 được với một upload đang bay (upload ghi object trước, row sau) và với object của
 hệ thống khác. **Không có xóa tự động.** Nếu quyết định dọn tay, chỉ dọn finding
 vẫn còn sau một khoảng đủ dài để loại trừ upload đang dở.
+
+Một drift chỉ được ghi **một lần** khi nó còn mở: mỗi lần chạy đối chiếu với các
+finding chưa `resolved_at` rồi bỏ những cái trùng `(kind, room_ref,
+attachment_id)`. Vì vậy `openFindings` tăng nghĩa là có drift *mới*, không phải
+là reconciler đang tự nhân bản. Sau khi xử lý xong, đóng finding lại:
+
+```sql
+update reconciliation_findings set resolved_at = now() where id = '...';
+```
+
+Đóng rồi mà drift quay lại thì nó được ghi lại như một sự kiện mới — đúng như
+mong muốn: đó là một sự thật mới, không phải bản sao của một sự thật đã đóng.
+
+**`jobs[reconcile].last_outcome = 'failure'`**
+
+Reconcile không liệt kê được bucket, hoặc không đọc được bảng `attachments`. Đây
+là "không quét được gì", **không** phải "quét xong và sạch" — hai thứ đó từng
+trông giống hệt nhau trong một báo cáo `success` với 0 finding. Không có hành
+động khẩn cấp nào cần làm với dữ liệu; hãy xử lý nguyên nhân ở Storage/DB rồi để
+lần chạy sau đối chiếu lại.
 
 **Thiếu migration**
 

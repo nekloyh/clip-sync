@@ -338,6 +338,23 @@ try {
     `got ${manyCount} rows`
   );
 
+  // Retention has to be a function that exists and can be called, not a comment
+  // in a migration. `/api/cron/cleanup` invokes this on every run and PostgREST
+  // reports a missing or unpermitted function by *returning* an error, so a
+  // half-applied migration 004 is a retention policy that quietly never runs.
+  //
+  // Called with a window far wider than any row this project holds, so it
+  // deletes nothing: this check is safe to point at production.
+  const { error: pruneErr } = await db.rpc('prune_analytics_events', {
+    retain_days: 3650000,
+  });
+
+  check(
+    'the analytics retention function exists and is callable',
+    !pruneErr,
+    pruneErr?.message ?? ''
+  );
+
   // Deleting a room must not take its funnel with it: the successful rooms are
   // exactly the ones that get deleted, so a cascade here would make the funnel
   // permanently unable to report success.

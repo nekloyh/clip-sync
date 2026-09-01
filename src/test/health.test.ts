@@ -20,6 +20,8 @@ const H = vi.hoisted(() => {
     throws: false,
     selects: [] as string[],
     resets: 0,
+    /** Every reconciliation finding currently open, for the ops endpoint. */
+    findings: [] as Array<{ kind: string; roomRef: string | null; detectedAt: string }>,
   };
 });
 
@@ -51,6 +53,24 @@ vi.mock('@/lib/rooms', () => ({
   },
 }));
 
+// The ops endpoint reads four independent sources. Stubbing them keeps this
+// file about what the endpoint *reports* — which is where the bug was: it used
+// to report the length of the page it displays as the total open findings.
+vi.mock('@/lib/ops', () => ({
+  JOBS: { CLEANUP: 'cleanup', RECONCILE: 'reconcile' },
+  readJobSnapshots: async () => [{ job: 'cleanup', secondsSinceCompletion: 42 }],
+}));
+
+vi.mock('@/lib/reconcile', () => ({
+  openFindings: async (limit: number) => H.findings.slice(0, limit),
+  countOpenFindings: async () => H.findings.length,
+}));
+
+vi.mock('@/lib/lifecycle', () => ({
+  pendingDeletionCount: async () => 3,
+  failedDeletionCount: async () => 1,
+}));
+
 const { GET: live } = await import('@/app/api/health/live/route');
 const { GET: ready } = await import('@/app/api/health/ready/route');
 const { GET: legacy } = await import('@/app/api/health/route');
@@ -67,6 +87,7 @@ beforeEach(() => {
   H.throws = false;
   H.selects.length = 0;
   H.resets = 0;
+  H.findings = [];
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   delete process.env.CLIPSYNC_REQUIRE_DISTRIBUTED_LIMITER;
@@ -230,6 +251,44 @@ describe('the detailed ops endpoint', () => {
     // currently unprotected and worth probing again after the next deploy.
     const res = await ops(request({}));
     expect(res.status).toBe(401);
+  });
+
+  it('reports the true number of open findings, not the page size', async () => {
+    process.env.CRON_SECRET = 'ops-secret';
+    H.findings = Array.from({ length: 25 }, (_, i) => ({
+      kind: 'object_without_db',
+      roomRef: String(i).padStart(32, '0'),
+      detectedAt: '2026-01-01T00:00:00.000Z',
+    }));
+
+    const body = await (await ops(request({ authorization: 'Bearer ops-secret' }))).json();
+
+    // docs/OPERATIONS.md §5 alerts on this number rising steadily. Reporting
+    // the length of the displayed page instead made it saturate at 20 and stop
+    // moving — blind from the exact point it was written to watch.
+    expect(body.reconciliation.openFindings).toBe(25);
+    expect(body.reconciliation.recent).toHaveLength(20);
+  });
+
+  it('gives an operator counts and never a way to locate a room', async () => {
+    process.env.CRON_SECRET = 'ops-secret';
+    H.findings = [
+      {
+        kind: 'db_without_object',
+        roomRef: 'a'.repeat(32),
+        detectedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const text = await (await ops(request({ authorization: 'Bearer ops-secret' }))).text();
+    const body = JSON.parse(text);
+
+    expect(body.deletionQueue).toEqual({ pending: 3, failed: 1 });
+    expect(body.jobs[0].secondsSinceCompletion).toBe(42);
+    // Kinds and timestamps only. Even the pseudonymous ref stays out of the
+    // listing: it correlates across runs, and an ops response is copied into
+    // more places than a log line is.
+    expect(text).not.toContain('a'.repeat(32));
   });
 });
 

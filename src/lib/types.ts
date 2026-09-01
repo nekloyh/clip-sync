@@ -19,7 +19,12 @@ export interface RoomRecord {
    * readable; everything else is reported to callers as a 404.
    */
   lifecycle_state: RoomLifecycleState;
-  /** When deletion was requested, for the worker's stable ordering. */
+  /**
+   * When the room became available to a deletion worker: the moment deletion
+   * was requested, then the moment of each claim. It is both the queue order
+   * and the worker's visibility timeout, which is what stops a second worker
+   * from taking a room off the first one.
+   */
   deletion_requested_at: string | null;
   /** How many times the worker has tried and failed to finish the deletion. */
   deletion_attempts: number;

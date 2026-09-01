@@ -19,7 +19,7 @@ const H = vi.hoisted(() => {
 
 vi.mock('@/lib/supabase/server', () => ({ createAdminClient: () => H.db.client() }));
 
-const { reconcile, openFindings } = await import('./reconcile');
+const { reconcile, openFindings, countOpenFindings } = await import('./reconcile');
 
 const ROOM_A = 'aaaaaaaa-0000-4000-8000-000000000000';
 const ROOM_B = 'bbbbbbbb-0000-4000-8000-000000000000';
@@ -95,13 +95,27 @@ describe('database rows whose object is gone', () => {
       created_at: '2026-01-01',
     });
     H.db.objects.add(`${ROOM_A}/one.png`);
-    H.db.storageListFails = true;
+    H.db.storageRoomListFails = true;
 
     // A listing error is not evidence of absence. Treating it as one would
     // report every attachment in the room as orphaned the first time Storage
     // has a bad minute.
     const report = await reconcile(100);
     expect(report.dbWithoutObject).toBe(0);
+    expect(findings()).toEqual([]);
+  });
+
+  it('fails the run when it could not scan at all', async () => {
+    H.db.rows('rooms').push({ id: ROOM_A });
+    H.db.objects.add(`${ROOM_A}/one.png`);
+    H.db.storageListFails = true;
+
+    // Distinct from the case above. There, one room could not be read and the
+    // rest of the sweep still happened. Here nothing was looked at, and a
+    // report of "success, zero findings" would be indistinguishable from a
+    // clean bucket at exactly the moment there is most to find — so the run has
+    // to fail and be recorded as a failure.
+    await expect(reconcile(100)).rejects.toThrow();
   });
 });
 
@@ -192,5 +206,75 @@ describe('reading findings back', () => {
 
     expect(open).toHaveLength(2);
     expect(open[0].detectedAt).toBe('2026-02-01');
+  });
+
+  it('counts every open finding, not just the page an operator is shown', async () => {
+    for (let i = 0; i < 25; i++) {
+      H.db.rows('reconciliation_findings').push({
+        kind: 'object_without_db',
+        room_ref: String(i).padStart(32, '0'),
+        detected_at: '2026-01-01',
+        resolved_at: null,
+      });
+    }
+    H.db.rows('reconciliation_findings').push({
+      kind: 'object_without_db',
+      room_ref: 'f'.repeat(32),
+      detected_at: '2026-01-01',
+      resolved_at: '2026-01-02',
+    });
+
+    // The alert in docs/OPERATIONS.md watches this number rising. Reporting the
+    // length of the first page instead made it saturate at the page size and
+    // stop moving — blind from the exact point it was written to watch.
+    expect(await openFindings(20)).toHaveLength(20);
+    expect(await countOpenFindings()).toBe(25);
+  });
+});
+
+describe('running it again on drift that has not moved', () => {
+  it('does not record the same finding twice across runs', async () => {
+    H.db.rows('rooms').push({ id: ROOM_A });
+    H.db.rows('attachments').push({
+      id: 'att-1',
+      room_id: ROOM_A,
+      storage_path: `${ROOM_A}/missing.png`,
+      created_at: '2026-01-01',
+    });
+    H.db.objects.add(`${ROOM_B}/orphan.png`);
+
+    const first = await reconcile(100);
+    const second = await reconcile(100);
+
+    // Both runs *see* the drift — it is still there, and saying otherwise would
+    // be a reconciler that forgets. Only the first one records it. Without
+    // this, one orphan becomes one new row every night and the "open findings
+    // rising steadily" alert fires on the reconciler duplicating itself.
+    expect(first).toMatchObject({ dbWithoutObject: 1, objectWithoutDb: 1, recorded: 2 });
+    expect(second).toMatchObject({ dbWithoutObject: 1, objectWithoutDb: 1, recorded: 0 });
+    expect(findings()).toHaveLength(2);
+    expect(await countOpenFindings()).toBe(2);
+  });
+
+  it('records a finding again once the old one has been resolved', async () => {
+    H.db.objects.add(`${ROOM_B}/orphan.png`);
+
+    await reconcile(100);
+    // An operator dealt with it, and the object drifted back. That is a new
+    // fact, not a duplicate of a closed one.
+    findings()[0].resolved_at = '2026-04-01';
+
+    expect((await reconcile(100)).recorded).toBe(1);
+    expect(findings()).toHaveLength(2);
+  });
+
+  it('records nothing rather than duplicating when it cannot read what is open', async () => {
+    H.db.objects.add(`${ROOM_B}/orphan.png`);
+    H.db.failingTable = 'reconciliation_findings';
+
+    // Reporting nothing new this run is recoverable. Doubling the queue an
+    // operator is triaging is the failure this guard exists to prevent.
+    expect((await reconcile(100)).recorded).toBe(0);
+    expect(findings()).toEqual([]);
   });
 });
