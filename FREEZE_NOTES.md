@@ -42,7 +42,7 @@ Snapshot toàn bộ working tree chưa commit tại thời điểm 2026-09-01, t
 git diff main...legacy/2026-09-pilot-readiness-wip
 
 # Lấy lại một phần (ví dụ bộ docs discovery) vào feature branch mới
-git switch -c feature/restore-discovery-docs dev
+git switch -c feature/restore-discovery-docs develop
 git checkout legacy/2026-09-pilot-readiness-wip -- docs/discovery docs/qa
 ```
 
