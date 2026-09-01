@@ -1,5 +1,12 @@
 # ClipSync Product & Development Roadmap
 
+> **THAM KHẢO LỊCH SỬ — định vị 08/2026, đã bị thay.** Nguồn chân lý hiện hành là
+> [`../PLAN.md`](../PLAN.md); nó thắng khi có mâu thuẫn. Market review 09/2026
+> (`PLAN.md` §1) kết luận wedge "Secure Support Handoff" mô tả dưới đây đã bị Birdie
+> chiếm, và thay bằng *evidence integrity + zero-PII ingestion cho MSP*. Thứ tự phase,
+> exit gate và ngưỡng giá trong file này **không còn hiệu lực**. Giữ lại vì phần thiết
+> kế E2EE ở đây vẫn là đầu vào cho Phase E (`PLAN.md` §3).
+>
 > Trạng thái: bản định hướng để kiểm chứng và lập kế hoạch, không phải cam kết ngày phát hành.
 >
 > Định vị đề xuất: **Secure Support Handoff** — phòng trao đổi tạm thời giúp đội hỗ trợ thu thập và gửi text, screenshot, log, file cấu hình và dữ liệu nhạy cảm với khách hàng mà không yêu cầu người nhận tạo tài khoản hoặc cài ứng dụng.
