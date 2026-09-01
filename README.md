@@ -13,6 +13,7 @@ Phase C. Trạng thái từng bất biến: [`docs/ENGINEERING_INVARIANTS.md`](.
 | --- | --- |
 | [`PLAN.md`](./PLAN.md) | **Nguồn chân lý hiện hành** — định vị, scope MVP, roadmap theo phase, KPI |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Mô hình branch, quality gate, quy trình release |
+| [`CHANGELOG.md`](./CHANGELOG.md) | Thay đổi theo release, kèm ghi chú triển khai |
 | [`KICKOFF.md`](./KICKOFF.md) | Cách mở session thực thi từng phase; mandate thay thế di sản |
 | [`docs/ENGINEERING_INVARIANTS.md`](./docs/ENGINEERING_INVARIANTS.md) | Ràng buộc kỹ thuật đúng ở mọi phase; nợ kiến trúc đã biết |
 | [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) | Runbook, alert, cleanup lifecycle, suy giảm rate limiter |
