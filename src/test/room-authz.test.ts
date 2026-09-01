@@ -177,7 +177,7 @@ import {
   ownerSecretFromToken,
   tokenExpiryMs,
 } from '@/lib/owner-auth';
-import { accessCookieName } from '@/lib/room-auth';
+import { accessCookieName, verifyAccessToken } from '@/lib/room-auth';
 import { memoryStore, setSharedStore } from '@/lib/limiter';
 import {
   OWNER_COOKIE,
@@ -879,6 +879,31 @@ describe('the room can change between the guard and the mutation', () => {
       column: 'lifecycle_state',
       value: 'active',
     });
+  });
+
+  it('does not hand out an unlock cookie the room cannot honour', async () => {
+    const slug = 'quiet-fox-race0007';
+    const legacy = createHash('sha256').update(`clipsync-salt:${slug}:1234`).digest('hex');
+    seedRoom(slug, { pin_hash: legacy });
+    // The room was queued for deletion between the read and the upgrade, so the
+    // scoped write matches nothing and the database keeps the legacy digest.
+    H.db.roomUpdateMatches = false;
+
+    const res = await pinRoute(
+      jsonRequest(`/api/rooms/${slug}/pin`, { action: 'verify', pin: '1234' }),
+      { params: { slug } }
+    );
+
+    expect((await res.json()).verified).toBe(true);
+
+    // The cookie is bound to a hash, and `hasRoomAccess` checks it against the
+    // hash the room actually holds. Binding it to the upgrade that did not land
+    // would lock a recipient who typed the *correct* PIN out of the room, on
+    // every retry — a regression the scoping predicate introduces unless the
+    // result of the write is read back.
+    const cookie = setCookies(res).find((c) => c.startsWith(`${accessCookieName(slug)}=`));
+    const token = decodeURIComponent(cookie!.split('=')[1].split(';')[0]);
+    expect(verifyAccessToken(token, slug, legacy)).toBe(true);
   });
 });
 

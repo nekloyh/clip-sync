@@ -165,19 +165,39 @@ async function handleVerify(
   let effectiveHash = room.pin_hash;
   if (isLegacyHash(room.pin_hash)) {
     try {
-      effectiveHash = await hashPin(pin);
-      await createAdminClient()
+      const upgraded = await hashPin(pin);
+      const { data, error } = await createAdminClient()
         .from('rooms')
-        .update({ pin_hash: effectiveHash })
+        .update({ pin_hash: upgraded })
         .eq('id', room.id)
         // Scoped like every other write in the codebase. The room can be queued
         // for deletion between the read above and this write, and an upgrade
         // that lands on a room on its way out is the one exception that gets
         // copied the next time somebody adds an endpoint.
-        .eq('lifecycle_state', 'active');
-    } catch (err) {
-      console.error('[clipsync] legacy PIN upgrade failed', err);
-      effectiveHash = room.pin_hash;
+        .eq('lifecycle_state', 'active')
+        // Both of these are load-bearing, and adding the predicate above
+        // without them would have been worse than leaving it off. The cookie
+        // minted below is bound to a hash, and `hasRoomAccess` compares it
+        // against the hash the database holds. Adopting `upgraded` when the
+        // write matched nothing — or when PostgREST *returned* an error rather
+        // than throwing one — binds the cookie to a hash the room does not
+        // have, and locks a recipient with the correct PIN out of the room on
+        // every retry.
+        .select('id')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data) effectiveHash = upgraded;
+    } catch {
+      // No provider message: it quotes the failed statement, and the statement
+      // carries the room id and the hash.
+      log.warn({
+        event: 'pin.legacy_upgrade_failed',
+        requestId,
+        route: ROUTE,
+        roomRef: ref,
+        outcome: 'failure',
+      });
     }
   }
 

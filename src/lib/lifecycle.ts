@@ -328,8 +328,14 @@ export async function processRoomDeletion(
       .map((row) => row.storage_path as string)
       .filter((path): path is string => Boolean(path));
 
-    // Sweep the folder until it comes back short, so a room holding more
-    // objects than one page still empties completely before its row goes.
+    // Sweep until a listing comes back *empty*, not until one comes back short.
+    // Those differ exactly when it matters: Storage reports a partial removal by
+    // returning the objects it did delete, leaving `error` unset, so "the remove
+    // call did not fail" is a weaker fact than "the folder is empty" — and only
+    // the second one makes it safe to delete the rows that record what was in
+    // there. Confirming costs one extra listing and buys the promise this whole
+    // function exists to keep.
+    let emptied = false;
     for (let page = 0; page < MAX_OBJECT_PAGES; page++) {
       const { data: objects, error: folderErr } = await supabase.storage
         .from(ATTACHMENTS_BUCKET)
@@ -345,29 +351,38 @@ export async function processRoomDeletion(
       const paths = [...new Set([...known, ...found])];
       known = [];
 
-      if (paths.length === 0) break;
+      if (paths.length === 0) {
+        emptied = true;
+        break;
+      }
 
-      const { error: removeErr } = await supabase.storage
+      const { data: removed, error: removeErr } = await supabase.storage
         .from(ATTACHMENTS_BUCKET)
         .remove(paths);
 
       // The one thing this must never do is proceed past a storage failure.
       // The rows below are the only record of which objects these were.
       if (removeErr) throw Object.assign(removeErr, { errorCode: ErrorCode.STORAGE_DELETE_FAILED });
-      // Count what the folder actually held, not what was asked for. `paths`
-      // also carries row paths whose object is already gone — the drift the
-      // reconciler calls `db_without_object` — and Storage accepts a remove for
-      // those without complaint. Counting them would inflate the one number
-      // `/api/health/ops` publishes about how much this worker destroys, which
-      // is the same class of lie GAP-2 fixed one field over.
-      deletedObjects += found.length;
 
-      if (found.length < OBJECT_PAGE) break;
-      if (page === MAX_OBJECT_PAGES - 1) {
-        throw Object.assign(new Error('room still holds objects'), {
-          errorCode: ErrorCode.STORAGE_DELETE_FAILED,
-        });
-      }
+      // What Storage says it removed, not what it was asked to remove. Two
+      // different things end up in `paths` that never existed as objects: row
+      // paths whose object is already gone (the drift the reconciler calls
+      // `db_without_object`), and, on a partial failure, objects Storage
+      // declined to delete — which it reports *here*, in the returned list,
+      // and not in `error`. Counting the request rather than the result would
+      // inflate the one number `/api/health/ops` publishes about how much this
+      // worker destroys, which is the same class of lie GAP-2 fixed one field
+      // over.
+      deletedObjects += (removed ?? []).length;
+    }
+
+    // Still holding objects after the page budget. Requeue rather than delete
+    // the rows: half-emptying a room and then destroying the record of what
+    // was in it is how an orphan becomes permanent.
+    if (!emptied) {
+      throw Object.assign(new Error('room still holds objects'), {
+        errorCode: ErrorCode.STORAGE_DELETE_FAILED,
+      });
     }
 
     if ((rows ?? []).length > 0) {
@@ -410,14 +425,31 @@ export async function processRoomDeletion(
     const errorCode =
       (thrown as { errorCode?: ErrorCodeValue })?.errorCode ?? ErrorCode.STORAGE_DELETE_FAILED;
 
-    await supabase
+    const { error: releaseErr } = await supabase
       .from('rooms')
       .update({
         lifecycle_state: exhausted ? 'deletion_failed' : 'deletion_pending',
         deletion_attempts: nextAttempts,
         deletion_error_code: errorCode,
       })
-      .eq('id', roomId);
+      .eq('id', roomId)
+      // Release only a lease this worker still holds. Without it, a worker that
+      // overran its ten minutes would stamp its own stale attempt count over
+      // the successor that legitimately reclaimed the room — the exact theft
+      // the lease above exists to prevent, performed by the loser instead of
+      // the winner. No match means somebody else owns the room now and will
+      // write its outcome.
+      .eq('lifecycle_state', 'deleting');
+
+    if (releaseErr) {
+      log.warn({
+        event: 'room.deletion_release_failed',
+        roomRef: ref,
+        actor: 'system',
+        outcome: 'failure',
+        attempts: nextAttempts,
+      });
+    }
 
     captureError({
       event: 'room.deletion_failed',

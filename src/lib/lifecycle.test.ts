@@ -287,6 +287,39 @@ describe('processing a deletion', () => {
     expect(H.db.removeCalls.flat()).toContain(`${ROOM_ID}/unreferenced.png`);
   });
 
+  it('keeps the room when storage quietly declines to delete part of it', async () => {
+    seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
+    // Storage reports a partial removal in the list it returns, not in `error`.
+    // A sweep that stops at "the remove call did not fail" therefore believes
+    // the folder is empty, deletes the rows naming what is still in it, and
+    // then deletes the room row — leaving an object nothing can attribute, at
+    // the exact moment the product says the room's data is gone.
+    H.db.unremovable.add(ATTACHMENTS[1].storage_path as string);
+
+    const outcome = await processRoomDeletion(ROOM_ID, 0);
+
+    expect(outcome.state).toBe('deletion_pending');
+    expect(H.db.objects.has(ATTACHMENTS[1].storage_path as string)).toBe(true);
+    // The rows are the only record of what is still there, so they outlive the
+    // failure and the next run can finish the job.
+    expect(H.db.rows('attachments')).toHaveLength(2);
+    expect(H.db.rows('rooms')).toHaveLength(1);
+  });
+
+  it('counts what storage removed, not what it was asked to remove', async () => {
+    seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
+    // A row pointing at an object that is already gone: the drift the
+    // reconciler calls `db_without_object`. Storage accepts the remove without
+    // complaint, so counting the request would report a deletion that never
+    // happened into the figure /api/health/ops publishes.
+    H.db.objects.delete(ATTACHMENTS[0].storage_path as string);
+
+    const outcome = await processRoomDeletion(ROOM_ID, 0);
+
+    expect(outcome.state).toBe('deleted');
+    expect(outcome.deletedObjects).toBe(1);
+  });
+
   it('keeps the room when it cannot even list what the room holds', async () => {
     seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
     H.db.storageListFails = true;

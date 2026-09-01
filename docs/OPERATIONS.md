@@ -87,6 +87,18 @@ rồi crash" là lý do phổ biến nhất khiến có retry).
 `deletion_pending`, tức là claim được ngay; không loại trừ thì vòng lặp sẽ đốt
 sạch 5 lượt retry trong vài giây vào một sự cố storage vẫn còn nguyên ở đó.
 
+**Worker quét tới khi listing trả về rỗng, không phải tới khi lệnh xóa không
+báo lỗi.** Storage báo một lần xóa *thành công một phần* bằng cách trả về danh
+sách những object nó đã xóa, và để `error` trống. Vì vậy "lệnh remove không lỗi"
+là một sự thật yếu hơn "thư mục đã rỗng", và chỉ sự thật thứ hai mới cho phép
+xóa các attachment row — thứ duy nhất ghi lại phòng đã có những object nào. Xác
+nhận rỗng tốn thêm một lần `list`; đổi lại, một lần xóa hụt sẽ đưa phòng về hàng
+đợi thay vì bỏ lại object mồ côi vĩnh viễn.
+
+Hệ quả: `deletedObjects` trong log `room.deleted` và trong `ops_runs` đếm những
+object **Storage báo đã xóa**, không phải số path được yêu cầu xóa — hai con số
+lệch nhau khi một attachment row trỏ tới object đã biến mất từ trước.
+
 **Worker cũng xóa mọi object nằm dưới `<room_id>/`, không chỉ object có row trỏ
 tới.** Attachment row nói phòng *biết* những object nào; thư mục storage nói
 phòng *có* những object nào. Hai tập này lệch nhau khi một upload đã ghi object
@@ -192,6 +204,8 @@ client khác nhau có tiêu cùng một ngân sách hay không.
 | **Limiter suy giảm** | Có log `rate_limit.store_unavailable` | Redis sự cố; verify PIN đang từ chối |
 | **Retention không chạy** | Có log `cleanup.analytics_prune_failed` | Cửa sổ 180 ngày của analytics **không** được thực thi. Kiểm tra `prune_analytics_events` có tồn tại và có quyền |
 | **Reconcile đổ vỡ** | `jobs[reconcile].last_outcome = 'failure'` | Không quét được gì. Khác hẳn "quét xong, sạch" |
+| **Reconcile đếm hụt** | Có log `reconcile.count_failed` | Quét xong nhưng không đọc được tổng số finding đang mở. `pendingWork` của lần chạy đó lùi về số finding *lần chạy này nhìn thấy*, nên có thể thấp hơn thực tế. **Không** phải sự cố Storage |
+| **Lease không nhả được** | Có log `room.deletion_release_failed` | Worker thất bại nhưng không ghi được trạng thái trả phòng. Phòng sẽ được thu hồi sau 10 phút; nếu lặp lại, kiểm tra quyền ghi bảng `rooms` |
 | **Lỗi 5xx** | Log `level: error` với `errorCode` bất kỳ | Dùng `requestId` để nối các dòng của cùng một request |
 
 `reconciliation.openFindings` là **tổng số finding đang mở**, đếm bằng một truy

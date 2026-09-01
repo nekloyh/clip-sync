@@ -45,7 +45,21 @@ export async function GET(req: NextRequest) {
 
   try {
     const report = await reconcile(BATCH_SIZE);
-    const openFindings = await countOpenFindings();
+
+    // Queue depth, read after the scan and deliberately kept out of the outcome
+    // the scan decides. docs/OPERATIONS.md §5 tells an operator that a failed
+    // reconcile run means "nothing was looked at"; letting a failed *count*
+    // query mark the run failed would send them to inspect Storage when the
+    // sweep itself was fine. Falls back to what this run saw, which is the
+    // number the job reported before there was a count at all.
+    let openFindings: number | null = null;
+    try {
+      openFindings = await countOpenFindings();
+    } catch {
+      log.warn({ event: 'reconcile.count_failed', requestId, route: ROUTE, outcome: 'failure' });
+    }
+
+    const pendingWork = openFindings ?? report.dbWithoutObject + report.objectWithoutDb;
     const durationMs = Date.now() - startedAt;
 
     await recordRunEnd(JOBS.RECONCILE, {
@@ -54,7 +68,7 @@ export async function GET(req: NextRequest) {
       // job reports is every finding still open — not the subset this run
       // happened to walk past, which would fall to zero the moment the drift
       // moved outside the batch window.
-      pendingWork: openFindings,
+      pendingWork,
       hasMore: report.hasMore,
       durationMs,
     });
@@ -65,7 +79,7 @@ export async function GET(req: NextRequest) {
       route: ROUTE,
       outcome: 'success',
       findings: report.dbWithoutObject + report.objectWithoutDb,
-      pendingWork: openFindings,
+      pendingWork,
       durationMs,
     });
 
