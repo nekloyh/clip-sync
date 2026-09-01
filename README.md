@@ -4,10 +4,24 @@
 ngoài cho đội IT support — qua một phòng tạm thời có link, không cần tài khoản, không cần
 cài gì, tự hủy theo TTL và owner thu hồi được bất cứ lúc nào.
 
-Định vị đang xây (`PLAN.md` §1): **evidence integrity + zero-PII ingestion cho MSP**.
-Hai wedge đó — che dữ liệu nhạy cảm *trên máy khách trước khi upload*, và manifest có
-hash để chứng minh đã nhận gì — **chưa có trong bản hiện tại**; chúng là Phase B và
-Phase C. Trạng thái từng bất biến: [`docs/ENGINEERING_INVARIANTS.md`](./docs/ENGINEERING_INVARIANTS.md) §1.
+> [!IMPORTANT]
+> **Trạng thái: FROZEN kể từ `v1.0.0` (2026-09-01). Dùng cá nhân.**
+>
+> Dự án đã hoàn thiện ở mức chạy ổn định hằng ngày cho một người — sync
+> text/ảnh/file giữa các thiết bị qua room + PIN + TTL — rồi dừng phát triển.
+> Sau freeze **chỉ sửa khi hỏng thực tế hoặc có lỗi security**; không thêm
+> feature, không nhận scope mới.
+>
+> Định vị thị trường (*evidence integrity + zero-PII ingestion cho MSP*) và
+> Phase B/C/D/E là **hồ sơ quyền chọn**, không phải việc đang làm. Chỉ mở lại
+> khi có một trong ba trigger: design partner/MSP đưa ticket thật, paid
+> intent/LOI, hoặc collaborator có sẵn distribution. Chi tiết ở
+> [`PLAN.md`](./PLAN.md) §3.
+
+Những wedge đó — che dữ liệu nhạy cảm *trên máy khách trước khi upload*, và manifest
+có hash để chứng minh đã nhận gì — **chưa có trong bản hiện tại** và sẽ không có
+trong trạng thái FROZEN. Trạng thái từng bất biến:
+[`docs/ENGINEERING_INVARIANTS.md`](./docs/ENGINEERING_INVARIANTS.md) §1.
 
 | Tài liệu | Nội dung |
 | --- | --- |
@@ -139,9 +153,15 @@ active ──(owner bấm xóa | TTL 7 ngày)──► deletion_pending ──cr
 
 Endpoint **phải được gọi theo lịch**, nếu không sẽ không có gì bị xóa cả.
 
-- **Trên Vercel**: [`vercel.json`](./vercel.json) khai báo `/api/cron/cleanup` mỗi giờ và
-  `/api/cron/reconcile` mỗi ngày. Chỉ cần đặt `CRON_SECRET` — Vercel tự gửi header
-  `Authorization: Bearer $CRON_SECRET`.
+- **Trên Vercel**: [`vercel.json`](./vercel.json) khai báo `/api/cron/cleanup` và
+  `/api/cron/reconcile`, **mỗi ngày một lần**. Chỉ cần đặt `CRON_SECRET` — Vercel tự
+  gửi header `Authorization: Bearer $CRON_SECRET`.
+  > Hobby plan **chỉ cho phép cron chạy theo ngày**. Một lịch dày hơn (ví dụ
+  > `0 * * * *`) không bị cảnh báo — nó làm **cả deployment production fail**, trong
+  > khi preview vẫn xanh vì Vercel chỉ đăng ký cron cho production. Với TTL 7 ngày
+  > thì quét mỗi ngày là đủ; phòng bị xóa chậm nhất là 24 giờ sau khi hết hạn.
+- **Cron chỉ chạy trên production.** Trên preview deployment không có gì tự chạy, nên
+  phòng đã bấm xóa sẽ nằm ở `deletion_pending` cho tới khi bạn gọi endpoint bằng tay.
 - **Nơi khác**: gọi từ cron của bạn:
 
 ```bash
