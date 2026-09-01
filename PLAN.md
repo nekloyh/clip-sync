@@ -1,8 +1,11 @@
 # PLAN — ClipSync / Secure Support Evidence
 
 > Ngày lập: 2026-09-01 · Trên nền baseline `main` @ `72f13ca` (tag `v0.2.0`)
-> Quy trình branch: xem [CONTRIBUTING.md](./CONTRIBUTING.md)
-> Thay thế định hướng cũ trong `docs/PRODUCT_ROADMAP.md` ở những điểm mâu thuẫn.
+> Quy trình branch: xem [CONTRIBUTING.md](./CONTRIBUTING.md) · Kickoff session: [KICKOFF.md](./KICKOFF.md)
+> PLAN.md là nguồn chân lý hiện hành. `docs/PRODUCT_ROADMAP.md` và
+> `docs/ARCHITECTURE_ROADMAP.md` (trên legacy) là **tham khảo lịch sử** của các định vị
+> trước — session thực thi được quyền viết lại/loại bỏ chúng theo mandate trong
+> KICKOFF.md §1b. Chính PLAN.md cũng phải nhường chỗ khi có bằng chứng thị trường mới hơn.
 
 ## 1. Bối cảnh quyết định (market review 09/2026)
 
