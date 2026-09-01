@@ -36,7 +36,35 @@ bằng **evidence integrity + zero-PII ingestion cho MSP**. Vì vậy mọi sess
   evidence integrity / MSP không?"* — không phục vụ thì là ứng viên để cắt, bất kể
   đã tốn bao nhiêu công. Sunk cost không phải lý do giữ.
 
-## 2. Prompt kickoff chính — Phase A (paste nguyên khối vào session mới)
+## 2. Prompt kickoff HIỆN HÀNH — Phase P: Personal Finish → Freeze
+
+> Model: Sonnet 5 (`claude-sonnet-5`) · Effort: high — việc còn lại nhỏ, không cần Opus.
+> Thư mục: `~/Projects/clip-sync`
+
+```text
+Đọc PLAN.md (banner trạng thái + Phase P trong §3) và CONTRIBUTING.md. Bối cảnh: dự án
+đang Personal Finish → Freeze; mọi định vị thị trường đã gác thành hồ sơ quyền chọn;
+KHÔNG thêm feature mới — mục tiêu là đóng dự án gọn ở mức dùng cá nhân hằng ngày.
+
+Nhiệm vụ: hoàn tất phần "Còn lại" của Phase P (PLAN.md §3):
+1. Xác nhận deployment Vercel xanh sau khi cron cleanup đã đổi sang daily. Nếu vẫn fail,
+   chẩn đoán từ build log; nghi phạm tiếp theo là thiếu env vars theo .env.example —
+   liệt kê chính xác biến nào thiếu để tôi set trên Vercel dashboard, đừng đoán mò.
+2. Chạy npm run verify:supabase với env thật; sửa những gì script báo (qua feature
+   branch + PR như thường lệ nếu phải sửa code).
+3. Sau khi tôi xác nhận smoke test OK trên điện thoại + laptop: mở PR release
+   develop→main "release: v1.0.0", tag v1.0.0, cập nhật README + PLAN.md sang trạng
+   thái FROZEN (personal-use; chỉ sửa khi hỏng/security; trigger mở lại như banner
+   PLAN.md).
+
+Ràng buộc: quy trình CONTRIBUTING (feature/* → PR + CI xanh); không đụng legacy/*;
+không log dữ liệu nhạy cảm.
+
+Kết thúc: deployment xanh, tag v1.0.0, repo ở trạng thái FROZEN — báo cáo lại checklist
+Phase P với từng mục đạt/chưa đạt.
+```
+
+## 2b. [HỒ SƠ QUYỀN CHỌN] Prompt Phase A — ĐÃ HOÀN THÀNH 2026-09-01 (PR #3–#5, v0.3.0)
 
 > Model: Opus 5 · Effort: xhigh · Thư mục: `~/Projects/clip-sync`
 
@@ -88,7 +116,9 @@ Kết thúc: báo cáo PR nào đã mở/merge, trạng thái CI, những di s�
 quyết định save-queue, và việc còn treo cho session sau.
 ```
 
-## 3. Prompt cho các phase sau (mỗi phase một session mới)
+## 3. [HỒ SƠ QUYỀN CHỌN] Prompt các phase thị trường — chỉ dùng khi có trigger mở lại
+
+> Không thực thi khi repo FROZEN. Trigger hợp lệ: xem banner PLAN.md.
 
 ### Phase B — Redaction engine (wedge số 1)
 
@@ -135,10 +165,10 @@ DLP, và bảng theo dõi commitment (artifact → cài thử → pilot → paid
 one-pager pitch VI + EN. Chỉ sửa docs, feature branch + PR như thường lệ.
 ```
 
-## 4. Nhịp làm việc đề xuất
+## 4. Nhịp làm việc hiện hành (Personal Finish → Freeze)
 
-1. **Tuần 1–2:** Phase A (3 session) + Phase V kit (1 session) → bắt đầu đặt lịch interview.
-2. **Cuối mỗi phase:** mở PR release `develop` → `main` khi đạt DoD phase, tag minor version.
-3. **Mỗi tuần:** cập nhật dashboard ROI (mục 27 của PORTFOLIO_ROI_ROADMAP_2026.md) — một
-   tuần không có user evidence hoặc technical evidence phải ghi rõ vì sao.
-4. **Ngày 14:** áp kill rule Phase V (PLAN.md §3) — quyết định build tiếp hay đóng case study.
+1. **Một session Phase P** (prompt §2) → deployment xanh + verify:supabase pass.
+2. **Owner smoke test** trên điện thoại + laptop vài ngày dùng thật.
+3. **Release `v1.0.0` + FROZEN** — sau đó 0 giờ/tuần; chỉ sửa khi hỏng/security.
+4. Khi có trigger mở lại (banner PLAN.md): quay lại §3 với Phase V trước, không build trước
+   khi có evidence.
