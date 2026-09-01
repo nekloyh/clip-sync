@@ -7,6 +7,15 @@
 > trước — session thực thi được quyền viết lại/loại bỏ chúng theo mandate trong
 > KICKOFF.md §1b. Chính PLAN.md cũng phải nhường chỗ khi có bằng chứng thị trường mới hơn.
 
+> [!IMPORTANT]
+> **TRẠNG THÁI 2026-09-01 (quyết định owner): PERSONAL FINISH → FREEZE.**
+> Sau khi review cạnh tranh (Birdie phủ phần lớn không gian; owner không muốn chạy
+> GTM/discovery), dự án được hoàn thiện ở mức **dùng cá nhân hằng ngày** rồi đóng băng.
+> Phase A đã xong (PR #3–#5, release `v0.3.0`). Từ đây chỉ **Phase P** được thực thi;
+> Phase V/B/C/D/E là **hồ sơ quyền chọn** — chỉ mở lại khi có trigger theo mục 0 của
+> PORTFOLIO_ROI_ROADMAP_2026.md (design partner/MSP đưa ticket thật, paid intent/LOI,
+> hoặc collaborator có distribution).
+
 ## 1. Bối cảnh quyết định (market review 09/2026)
 
 Kết quả thẩm định lại thị trường ngày 2026-09-01:
@@ -62,6 +71,32 @@ screen capture".
 
 > Ước lượng theo giờ solo-dev thực tế (~15–20 h/tuần). Mỗi phase có timebox;
 > hết timebox chưa đạt DoD thì cắt scope, không kéo dài.
+
+### Phase P — Personal Finish (HIỆN HÀNH, timebox 1 tuần, rồi FREEZE)
+
+Mục tiêu: ClipSync chạy ổn định cho một người dùng hằng ngày (text/ảnh/file giữa
+các thiết bị qua room + PIN + TTL), chi phí 0đ, vận hành 0 giờ/tuần.
+
+**Đã xong** (2026-09-01, release `v0.3.0`): save-queue/sync correctness (PR #5),
+ops hardening — deletion/reconcile/retention (PR #4), discovery docs khôi phục làm
+hồ sơ quyền chọn (PR #3).
+
+**Còn lại:**
+
+| Việc | Nội dung | DoD |
+|---|---|---|
+| Cron trong giới hạn Hobby | `vercel.json`: cleanup hourly → daily (Vercel Hobby chỉ cho cron daily) — đã sửa cùng PR này | Deployment không còn bị chặn vì cron |
+| Vercel env (owner tự làm) | Set env theo `.env.example` trên Vercel project; chạy `npm run verify:supabase` với env thật | Deployment xanh; app mở được từ điện thoại + laptop |
+| Smoke test cá nhân | Tạo room + PIN, sync text giữa 2 thiết bị, upload/tải ảnh, room hết hạn đúng TTL | Dùng thật ổn trong ~3 ngày |
+| Release & freeze | PR release `develop`→`main` `release: v1.0.0`, tag; README + PLAN ghi FROZEN + trigger mở lại | Tag `v1.0.0`; trạng thái FROZEN |
+
+**Sau freeze:** 0 giờ/tuần; chỉ sửa khi hỏng thực tế hoặc lỗi security (chuẩn
+SHOWCASE). Supabase Free pause project sau ~1 tuần không hoạt động — dùng hằng ngày
+thì không sao; nếu ngừng dùng, chấp nhận pause và unpause khi cần lại.
+
+---
+
+Các phase dưới đây là **hồ sơ quyền chọn (không thực thi khi FROZEN)**:
 
 ### Phase V — Validation sprint (tuần 1–2, song song Phase A, ~20 h, không code)
 
@@ -189,3 +224,7 @@ gh api -X PUT repos/nekloyh/clip-sync/branches/develop/protection \
   (không chứa commit riêng nào).
 - Kickoff prompt + khuyến nghị model/effort cho từng phase: xem
   [KICKOFF.md](./KICKOFF.md).
+- 2026-09-01 (tối): owner quyết định **Personal Finish → Freeze** sau khi cân nhắc
+  cạnh tranh (Birdie) và không muốn chạy GTM. Phase A hoàn tất và release `v0.3.0`
+  cùng ngày (PR #3–#5); phần còn lại của Phase P ghi ở §3. Phase V/B/C/D/E chuyển
+  thành hồ sơ quyền chọn.
