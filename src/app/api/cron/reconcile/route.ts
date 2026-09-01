@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { reconcile } from '@/lib/reconcile';
+import { reconcile, countOpenFindings } from '@/lib/reconcile';
 import { recordRunStart, recordRunEnd, JOBS } from '@/lib/ops';
 import { fail, ERR_INTERNAL } from '@/lib/http';
 import { ErrorCode } from '@/lib/errors';
@@ -45,13 +45,16 @@ export async function GET(req: NextRequest) {
 
   try {
     const report = await reconcile(BATCH_SIZE);
+    const openFindings = await countOpenFindings();
     const durationMs = Date.now() - startedAt;
 
     await recordRunEnd(JOBS.RECONCILE, {
       outcome: 'success',
-      // Findings are work an operator still has to do, so they are the queue
-      // depth this job reports.
-      pendingWork: report.dbWithoutObject + report.objectWithoutDb,
+      // Findings are work an operator still has to do, so the queue depth this
+      // job reports is every finding still open — not the subset this run
+      // happened to walk past, which would fall to zero the moment the drift
+      // moved outside the batch window.
+      pendingWork: openFindings,
       hasMore: report.hasMore,
       durationMs,
     });
@@ -62,11 +65,12 @@ export async function GET(req: NextRequest) {
       route: ROUTE,
       outcome: 'success',
       findings: report.dbWithoutObject + report.objectWithoutDb,
+      pendingWork: openFindings,
       durationMs,
     });
 
     return NextResponse.json(
-      { ...report, durationMs },
+      { ...report, openFindings, durationMs },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (err) {

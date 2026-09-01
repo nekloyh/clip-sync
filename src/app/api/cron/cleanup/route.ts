@@ -8,6 +8,7 @@ import {
   pendingDeletionCount,
 } from '@/lib/lifecycle';
 import { recordRunStart, recordRunEnd, JOBS } from '@/lib/ops';
+import { track, EVENTS } from '@/lib/analytics';
 import { fail, ERR_INTERNAL } from '@/lib/http';
 import { ErrorCode } from '@/lib/errors';
 import { log, requestIdFrom } from '@/lib/log';
@@ -157,6 +158,19 @@ export async function GET(req: NextRequest) {
       durationMs: Date.now() - startedAt,
     });
 
+    // A run that collapses is the most serious way cleanup fails, and until now
+    // it was the only one the funnel could not see: `cleanup_failed` was
+    // emitted per room, so a run that died before reaching any room — a missing
+    // migration, storage refusing the queue query — left the event catalog
+    // saying nothing had gone wrong. No `roomRef`, because no room is what this
+    // one is about.
+    await track({
+      name: EVENTS.CLEANUP_FAILED,
+      actor: 'system',
+      outcome: 'failure',
+      errorCode: ErrorCode.INTERNAL,
+    });
+
     return fail(500, ErrorCode.INTERNAL, ERR_INTERNAL, {
       requestId,
       route: ROUTE,
@@ -165,11 +179,26 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * Enforce the analytics retention window.
+ *
+ * The returned `error` is checked rather than relied on being thrown, and that
+ * is the whole point of this function's shape: PostgREST *returns* its failures.
+ * The previous version wrapped the call in try/catch alone, so a missing or
+ * renamed `prune_analytics_events` — a half-applied migration 004, a revoked
+ * grant — produced a resolved promise, an ignored error object and a run that
+ * reported success. Retention is a promise made to buyers in
+ * `docs/ANALYTICS.md`; the one failure mode it must not have is a silent one.
+ *
+ * Still best-effort: telemetry housekeeping must not fail the run that deletes
+ * users' data.
+ */
 async function pruneAnalytics(requestId: string): Promise<void> {
   try {
-    await createAdminClient().rpc('prune_analytics_events', {
+    const { error } = await createAdminClient().rpc('prune_analytics_events', {
       retain_days: ANALYTICS_RETAIN_DAYS,
     });
+    if (error) throw error;
   } catch {
     log.warn({
       event: 'cleanup.analytics_prune_failed',
