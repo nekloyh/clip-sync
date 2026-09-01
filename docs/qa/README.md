@@ -20,6 +20,22 @@ Findings `GAP-1` … `GAP-13` trong `PHASE_0_1_BASELINE_REPORT.md` §4 là ngu�
 của phần lớn diff `src/` trên branch legacy, và vì thế là provenance của
 `feature/pilot-hardening`. Quyết định lấy hay bỏ từng GAP được ghi trong PR đó.
 
+### Hàng traceability mô tả code **không** được lấy về
+
+`PHASE_0_1_TRACEABILITY.md` chấm điểm cây code trên branch legacy, và không phải
+phần nào của cây đó cũng về `develop`. Hai hàng dưới đây vì thế không mô tả
+`develop` hôm nay — chúng vẫn đúng với legacy, và được giữ nguyên vì đó là điều
+một bản ghi phải làm:
+
+| Hàng | Nói gì | Thực tế trên `develop` |
+| --- | --- | --- |
+| **C8.3** — "Pending save được flush khi page unload", `GAP-4 đã sửa` | Dựa trên `flushPendingSave` và listener `pagehide` | **Không có.** Cả hai bị **rejected** — chúng đẩy nội dung chưa duyệt lên server đúng lúc người dùng không xác nhận được gì, ngược với bất biến P1 mà Phase B đang xây. **GAP-4 chưa được sửa**; lý do và hướng xử lý ở `FREEZE_NOTES.md` trên branch legacy và trong comment ngay trên đường unmount của `TextEditor.tsx` |
+| **C8.2** — "Save retry không ghi đè edit mới hơn", nửa `PASS_MANUAL` cho dây nối trong component | Dựa trên `retrySave` đọc `latestContentRef` | Cơ chế xếp hàng đã về (`src/lib/save-queue.ts`), nhưng nửa `PASS_MANUAL` đó **đã bị chứng minh là sai**: hai ref không được giữ đồng bộ, nên một retry có thể phát lại văn bản của người khác. Bất biến nay nằm ở `src/lib/unsent-edit.ts` và là `PASS_AUTOMATED` |
+
+Hàng C8.2 là ví dụ chính xác cho quy tắc ở §1: `PASS_MANUAL` nghĩa là "đã đọc
+code và tin", và một lần đọc code không phát hiện được một invariant trải trên ba
+chỗ ghi. Nhãn đã làm đúng việc của nó — nó nói rõ bằng chứng thuộc loại yếu hơn.
+
 ## 1. Quy tắc bất biến: mỗi kết luận mang loại bằng chứng của nó
 
 Đây là phần đáng giữ nhất của đợt 2026-08-29 và nó độc lập với định vị. Rủi ro

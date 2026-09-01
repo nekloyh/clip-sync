@@ -29,9 +29,12 @@ export interface SaveQueue {
   /**
    * Offer text to be saved.
    *
-   * Resolves when the queue is idle again for the caller that started the run;
-   * a caller that arrived mid-run resolves immediately, since its text has been
-   * handed to the run already in progress.
+   * The returned promise reports on the *run*, not on this caller's text: a
+   * caller that arrives mid-run resolves immediately, and a caller whose text
+   * is replaced before it is sent resolves as though it had been. Only the
+   * caller that starts a run can observe a send failing, and only the first
+   * one. Callers who need the outcome of their own save must get it from the
+   * sender, which is what the component does.
    */
   submit(text: string): Promise<void>;
   /** True while a send is in flight. */
@@ -45,7 +48,21 @@ export function createSaveQueue(send: SaveSender): SaveQueue {
   // version already known to be stale.
   let queued: string | null = null;
 
+  async function drain(): Promise<void> {
+    running = true;
+    try {
+      while (queued !== null) {
+        const next = queued;
+        queued = null;
+        await send(next);
+      }
+    } finally {
+      running = false;
+    }
+  }
+
   return {
+    /** True while a send is in flight. The property the tests assert ordering against. */
     get busy() {
       return running;
     },
@@ -54,17 +71,16 @@ export function createSaveQueue(send: SaveSender): SaveQueue {
       queued = text;
       if (running) return;
 
-      running = true;
       try {
-        while (queued !== null) {
-          const next = queued;
-          queued = null;
-          // `send` reports failure through its own state, not by throwing; a
-          // rejection here must still release the queue rather than wedge it.
-          await send(next);
-        }
+        await drain();
       } finally {
-        running = false;
+        // A send that threw unwound the loop with newer text still in the slot,
+        // and that text is by definition an edit made while the request was in
+        // flight — it has been offered nowhere else and nothing else will pick
+        // it up. Stranding it would make the queue lose exactly the writing it
+        // exists to protect. Restarting swallows a second failure; the first
+        // one still reaches the caller.
+        if (!running && queued !== null) void drain().catch(() => {});
       }
     },
   };

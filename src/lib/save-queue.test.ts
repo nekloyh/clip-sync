@@ -136,6 +136,42 @@ describe('a failing send', () => {
   });
 });
 
+describe('a send that throws', () => {
+  it('does not strand the text that arrived while it was in flight', async () => {
+    const sent: string[] = [];
+    let failNext = true;
+    const send = async (text: string) => {
+      sent.push(text);
+      if (failNext) {
+        failNext = false;
+        throw new Error('network gone');
+      }
+    };
+    const queue = createSaveQueue(send);
+
+    const first = queue.submit('typed-first');
+    // The person kept typing while the request was in the air. This text has
+    // been offered nowhere else; if the queue drops it because the send before
+    // it threw, the edit is gone with no error anyone can act on.
+    void queue.submit('typed-during');
+
+    await expect(first).rejects.toThrow('network gone');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sent).toEqual(['typed-first', 'typed-during']);
+    expect(queue.busy).toBe(false);
+  });
+
+  it('is idle again after a throw, so the next save is not wedged behind it', async () => {
+    const queue = createSaveQueue(vi.fn().mockRejectedValue(new Error('network gone')));
+
+    await expect(queue.submit('one')).rejects.toThrow('network gone');
+
+    expect(queue.busy).toBe(false);
+  });
+});
+
 describe('the request body', () => {
   it('is the same whether or not the request has to outlive the page', () => {
     const normal = saveRequestInit('same text');
