@@ -165,17 +165,22 @@ Kiểm tra kèm theo mỗi sự cố:
 
 ## 8. Đánh giá
 
-| Tiêu chí | Đạt? | Ghi chú |
-| --- | --- | --- |
-| Đội dùng thật cho ticket thật (không phải dùng thử) | | |
-| ≥3 handoff / agent / tuần | | |
-| Median time-to-first-evidence < 5 phút | | |
-| Recipient hoàn thành không cần trợ giúp ≥70% | | |
-| Không có sự cố mất dữ liệu | | |
-| Không có sự cố PII/secret | | |
-| Không có hiểu nhầm về bảo mật còn tồn tại khi kết thúc | | |
-| **Ít nhất một wedge được nêu tự phát (§4)** | | |
-| Có cam kết thương mại | | |
+Cột **Nguồn** phân biệt ngưỡng bắt buộc với ngưỡng do người chạy pilot tự đặt.
+Chỉ hàng ghi `PLAN.md §6` mới là KPI ràng buộc; hàng ghi `heuristic` là mức tự
+đặt cho pilot này và có thể chỉnh, miễn ghi lại lý do.
+
+| Tiêu chí | Nguồn | Đạt? | Ghi chú |
+| --- | --- | --- | --- |
+| Đội dùng thật cho ticket thật (không phải dùng thử) | heuristic | | |
+| ≥3 handoff / agent / tuần | heuristic (quy đổi từ ≥20/tháng/team, `PLAN.md` §6) | | |
+| Median time-to-first-evidence < 5 phút | `PLAN.md` §6 | | |
+| Recipient hoàn thành không cần trợ giúp ≥70% | `PLAN.md` §6 | | |
+| Giảm ≥1 vòng hỏi-lại per ticket so với baseline §2 | `PLAN.md` §6 | | |
+| Không có sự cố mất dữ liệu | heuristic | | |
+| Không có sự cố PII/secret | `PLAN.md` §6 | | |
+| Không có hiểu nhầm về bảo mật còn tồn tại khi kết thúc | heuristic | | |
+| **Ít nhất một wedge được nêu tự phát (§4)** | heuristic | | |
+| Có cam kết thương mại | heuristic | | |
 
 **Kết luận:** design partner / tiếp tục theo dõi / dừng
 

@@ -22,7 +22,7 @@
 | P1 | **Zero-PII ingestion**: nội dung nhạy cảm được phát hiện và che **trên máy khách, trước khi rời trình duyệt**. Server không bao giờ nhận bản chưa che. | **CHƯA ĐẠT** — mục tiêu của Phase B. Cho tới khi Phase B xong, không tài liệu, UI hay pitch nào được nói hoặc gợi ý là đã có. |
 | P2 | **Evidence integrity**: mỗi bundle có manifest với hash từng file, timestamp và vai trò người upload; verify được ngoài hệ thống. | **CHƯA ĐẠT** — mục tiêu của Phase C. |
 | P3 | **Xóa là xóa thật**: khi một phòng được xóa, mọi byte thuộc về nó biến mất, kể cả object không còn row nào trỏ tới. | **ĐANG SỬA** — hôm nay worker chỉ xóa object có row trỏ tới (GAP-8); fix nằm ở `feature/pilot-hardening`. |
-| P4 | **Không log content/PIN/filename/slug nhạy cảm.** | **ĐÃ ĐẠT**, có test đối kháng giữ. Xem `docs/qa/README.md` §3. |
+| P4 | **Không log content/PIN/filename/slug nhạy cảm.** Hai lớp: allowlist ứng dụng (`src/lib/log.ts`, `src/lib/analytics/catalog.ts`) và bảng analytics không có cột để chứa. | **ĐÃ ĐẠT.** Giữ bởi test đối kháng — chúng chủ động truyền slug/PIN/cookie/filename/content vào rồi chứng minh bị loại: `src/lib/log.test.ts`, `src/lib/analytics/catalog.test.ts`, `src/test/room-authz.test.ts`. Xoá hoặc nới một trong số chúng phải được nêu tường minh trong PR. |
 | P5 | **Mọi truy cập DB/Storage chạy server-side** bằng `service_role`, bên trong route handler đã kiểm tra quyền. Anon key không có quyền trên bảng. | **ĐÃ ĐẠT**. |
 | P6 | **Owner capability tách khỏi quyền recipient**: biết URL hoặc biết PIN không phải là quyền owner; DB chỉ giữ hash. | **ĐÃ ĐẠT**. |
 
@@ -47,7 +47,11 @@ nhất với một sản phẩm bán bằng bảo mật.
    thành domain model.
 6. **Không tự thiết kế crypto.** Cipher suite, nonce, key derivation, envelope,
    recovery phải dùng primitive đã được review, và phải qua security review độc
-   lập trước khi được quảng cáo (áp dụng khi tới Phase E).
+   lập trước khi được quảng cáo (áp dụng khi tới Phase E). Đầu vào cho ADR đó —
+   key hierarchy, sharing, rotation, recovery/key loss, protocol versioning —
+   nằm ở `docs/PRODUCT_ROADMAP.md` và ở `docs/ARCHITECTURE_ROADMAP.md` §3, §8
+   (ADR-004…ADR-006) trên `legacy/2026-09-pilot-readiness-wip`. Không chép chúng
+   về trước khi Phase E thực sự bắt đầu; chép sớm là dựng lại nguồn chân lý thứ hai.
 7. **Migration chỉ đi tới.** `expand → migrate → contract`, có compatibility
    window và rollback ở cấp ứng dụng. Thiếu một migration phải lùi về hướng an
    toàn (mất quyền quản trị), không phát quyền cho người lạ — hành vi hiện tại
@@ -86,7 +90,7 @@ Cần được tự động hóa dần, không chỉ ghi trong tài liệu. Nh�
 - ✅ Mọi event/log chỉ đi qua allowlisted contract; test **chủ động** truyền
   content/PIN/slug/filename vào để chứng minh chúng bị loại.
 - ✅ Authorization được test ở mức route handler, không phải helper.
-- ✅ Worker job có test cho retry, dead-letter và queue-age. (Test cho lease đến cùng `feature/pilot-hardening`.)
+- ✅ Worker job có test cho retry, dead-letter và queue-age. `lifecycle.test.ts` đã có "leaves a room another worker just claimed" và "reclaims a room whose worker died", nhưng cả hai vẫn xanh với bug GAP-1; test **pin** được lease (claim làm mới đồng hồ, hai worker tranh nhau) đến cùng `feature/pilot-hardening`.
 - ✅ Mutation retry được có test idempotency/concurrency.
 - ✅ CI chạy typecheck, lint, test và production build cho mọi PR.
 - ⬜ Redaction engine: eval set FP/FN chạy như regression test (Phase B DoD).

@@ -17,7 +17,9 @@ Phase C. Trạng thái từng bất biến: [`docs/ENGINEERING_INVARIANTS.md`](.
 | [`docs/ENGINEERING_INVARIANTS.md`](./docs/ENGINEERING_INVARIANTS.md) | Ràng buộc kỹ thuật đúng ở mọi phase; nợ kiến trúc đã biết |
 | [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) | Runbook, alert, cleanup lifecycle, suy giảm rate limiter |
 | [`docs/ANALYTICS.md`](./docs/ANALYTICS.md) | Event dictionary và chính sách privacy của telemetry |
-| [`docs/discovery/`](./docs/discovery/) | Kit Phase V: interview guide, pilot scorecard, bảng bằng chứng exit gate |
+| [`docs/discovery/INTERVIEW_GUIDE.md`](./docs/discovery/INTERVIEW_GUIDE.md) | Kit Phase V — kịch bản phỏng vấn 15 đội |
+| [`docs/discovery/PILOT_SCORECARD.md`](./docs/discovery/PILOT_SCORECARD.md) | Kit Phase V — scorecard cho mỗi concierge pilot |
+| [`docs/discovery/PHASE_V_EVIDENCE.md`](./docs/discovery/PHASE_V_EVIDENCE.md) | Kit Phase V — bảng roll-up bốn gate G1–G4 và kill rule |
 | [`docs/qa/`](./docs/qa/) | Phương pháp QA (mỗi kết luận mang loại bằng chứng của nó) + bản ghi 2026-08-29 |
 | [`docs/PRODUCT_ROADMAP.md`](./docs/PRODUCT_ROADMAP.md) | **Tham khảo lịch sử** — định vị 08/2026, đã bị `PLAN.md` thay |
 

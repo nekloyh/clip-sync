@@ -53,23 +53,26 @@ client-side redaction hoặc chứng minh integrity **trước khi** ta mô tả
 hay không. Đây là cột đo giả thuyết trung tâm của định vị hiện tại; một loạt
 phỏng vấn đạt G1 nhưng cột này trống nghĩa là pain có thật còn *wedge* thì không.
 
-| # | Đội (ẩn danh) | Loại hình | PSA/help desk | Sự kiện có ngày tháng? | Pain lặp lại? | Wedge tự phát | Ngày |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | | | | | | zero-PII / integrity / không | |
-| 2 | | | | | | | |
-| 3 | | | | | | | |
-| 4 | | | | | | | |
-| 5 | | | | | | | |
-| 6 | | | | | | | |
-| 7 | | | | | | | |
-| 8 | | | | | | | |
-| 9 | | | | | | | |
-| 10 | | | | | | | |
-| 11 | | | | | | | |
-| 12 | | | | | | | |
-| 13 | | | | | | | |
-| 14 | | | | | | | |
-| 15 | | | | | | | |
+Cột **Handoff/tháng** được thu ở mọi cuộc phỏng vấn, không chỉ ở những đội đạt
+G2 — mẫu để tính trung vị ở §6 là cả 15 đội, không phải 5 đội cao nhất.
+
+| # | Đội (ẩn danh) | Loại hình | PSA/help desk | Handoff/tháng | Sự kiện có ngày tháng? | Pain lặp lại? | Wedge tự phát | Ngày |
+| --- | --- | --- | --- | ---: | --- | --- | --- | --- |
+| 1 | | | | | | | zero-PII / integrity / không | |
+| 2 | | | | | | | | |
+| 3 | | | | | | | | |
+| 4 | | | | | | | | |
+| 5 | | | | | | | | |
+| 6 | | | | | | | | |
+| 7 | | | | | | | | |
+| 8 | | | | | | | | |
+| 9 | | | | | | | | |
+| 10 | | | | | | | | |
+| 11 | | | | | | | | |
+| 12 | | | | | | | | |
+| 13 | | | | | | | | |
+| 14 | | | | | | | | |
+| 15 | | | | | | | | |
 
 **Tổng kết G1**
 
@@ -84,6 +87,10 @@ phỏng vấn đạt G1 nhưng cột này trống nghĩa là pain có thật cò
 ## 2. G2 — Workflow đủ dày (≥20 handoff/tháng)
 
 Nguồn: `INTERVIEW_GUIDE.md` §2.
+
+Chỉ liệt kê những đội đạt hoặc gần đạt ngưỡng; con số của **mọi** đội đã phỏng
+vấn nằm ở cột `Handoff/tháng` của bảng G1 phía trên. Nếu quá năm đội đạt ngưỡng,
+thêm hàng — bảng này không giới hạn ở 5.
 
 | # | Đội | Handoff/tháng | Trong đó nhạy cảm | Nguồn số liệu | Đếm được hay ước lượng? | ≥20? |
 | --- | --- | ---: | ---: | --- | --- | --- |

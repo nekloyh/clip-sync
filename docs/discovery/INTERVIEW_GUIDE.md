@@ -176,15 +176,32 @@ Câu có nêu tên (đánh dấu mọi câu trả lời sau đây là **được
 
 ## 7. Phản ứng với giải pháp (6 phút)
 
-> Chỉ tới đây mới mô tả sản phẩm, và mô tả bằng đúng hai câu, không demo trước.
+> Chỉ tới đây mới mô tả sản phẩm, không demo trước.
+>
+> **Bắt buộc: tách cái đang có khỏi cái đang xây, và nói ra sự tách đó.** Phần
+> hôm nay đã chạy được nói ở thì hiện tại; hai wedge chưa được xây
+> (`../ENGINEERING_INVARIANTS.md` §1, P1 và P2) chỉ được nói ở thì tương lai, kèm
+> một câu nói thẳng rằng chúng chưa tồn tại. Đây không phải phép lịch sự — một
+> prospect rời cuộc gọi mà tin là redaction đã có sẽ đánh giá pilot bằng một sản
+> phẩm không tồn tại, và mọi câu trả lời sau đó của họ trở thành vô giá trị.
+> `PILOT_SCORECARD.md` §5 tính điều đó là **lỗi của ta**.
 
-Hai câu để đọc:
+Đọc nguyên văn, cả hai đoạn:
 
-> "Một phòng tạm thời có link, khách mở là dùng được, không cần tạo tài khoản,
-> không cần cài gì. Trước khi bất cứ thứ gì rời máy khách, trình duyệt của họ
-> quét và che thông tin nhạy cảm — server chúng tôi không bao giờ nhận bản chưa
-> che; và mỗi phòng xuất ra được một manifest có hash từng file để anh/chị chứng
-> minh đã nhận gì, khi nào, và rằng nó chưa bị sửa."
+> **Cái đang có:** "Một phòng tạm thời có link, khách mở là dùng được, không cần
+> tạo tài khoản, không cần cài gì; dán text, log và ảnh vào; phòng tự hủy theo
+> hạn, và anh/chị đóng được bất cứ lúc nào."
+>
+> **Cái đang xây — nói rõ là chưa có:** "Hai thứ nữa đang được xây và **hôm nay
+> chưa có**, tôi muốn hỏi anh/chị xem chúng có đáng không trước khi tôi viết
+> tiếp. Thứ nhất: trước khi bất cứ thứ gì rời máy khách, trình duyệt của họ sẽ
+> quét và che thông tin nhạy cảm, để server chúng tôi không bao giờ nhận bản chưa
+> che. Thứ hai: mỗi phòng sẽ xuất ra được một manifest có hash từng file, để
+> anh/chị chứng minh đã nhận gì, khi nào, và rằng nó chưa bị sửa."
+
+> Nếu người được hỏi tưởng nhầm là đã có, sửa ngay tại chỗ và ghi vào ô cuối §11.
+> Một câu trả lời nhiệt tình dựa trên hiểu nhầm là dữ liệu hỏng, không phải tín
+> hiệu yếu.
 
 - Nghe xong, anh/chị thấy nó thay thế được bước nào trong quy trình hiện tại?
 - Trong hai vế đó — che trước khi gửi, và manifest chứng minh — vế nào đáng giá
@@ -284,7 +301,8 @@ Hai câu để đọc:
 > Ô cuối cùng là ô quan trọng nhất, và là ô dễ bỏ trống nhất. Một loạt phỏng vấn
 > không bác bỏ được giả thuyết nào là một loạt phỏng vấn đã hỏi sai câu.
 >
-> Ba giả thuyết mà định vị hiện tại đứng trên, và cần bị thách thức trong loạt
-> này: (1) đội hỗ trợ phân biệt được và quan tâm tới client-side vs server-side
-> redaction; (2) có ai đó bị hỏi "chứng minh đã xóa" đủ thường xuyên để trả tiền
-> cho manifest; (3) MSP là kênh dễ vào hơn đội support in-house.
+> Ba giả thuyết H1–H3 mà định vị hiện tại đứng trên được liệt kê một chỗ duy
+> nhất, ở [`PHASE_V_EVIDENCE.md`](./PHASE_V_EVIDENCE.md) §8, kèm hệ quả roadmap
+> nếu từng cái bị bác bỏ. Đọc bảng đó trước mỗi cuộc phỏng vấn và ghi bằng chứng
+> phản bác thẳng vào đấy — đừng chép lại danh sách vào đây, hai bản sao sẽ lệch
+> nhau.
