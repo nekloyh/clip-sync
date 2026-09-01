@@ -18,6 +18,13 @@ import {
   fetchWithTimeout,
   type RequestFailure,
 } from '@/lib/request-failure';
+import {
+  createSaveQueue,
+  saveRequestInit,
+  type SaveQueue,
+  type SaveSender,
+} from '@/lib/save-queue';
+import { createUnsentEdit } from '@/lib/unsent-edit';
 import type { PendingUpload } from './AttachmentGrid';
 
 interface TextEditorProps {
@@ -90,13 +97,13 @@ export function TextEditor({
   const lastUpdatedAtRef = useRef<string>(initialRoom.updated_at || new Date(0).toISOString());
   const supabaseRef = useRef(createClient());
   const channelRef = useRef<RealtimeChannel | null>(null);
-  // Monotonic counter: an older save's response must never overwrite a newer
-  // one's `updated_at`, which the previous version allowed.
-  const saveSeqRef = useRef(0);
-  const appliedSeqRef = useRef(0);
   const dragDepthRef = useRef(0);
-  /** The exact text of the last failed save, for the retry button. */
-  const failedContentRef = useRef<string | null>(null);
+  /**
+   * What this browser still owes the server: the newest text, and whether any
+   * of it is unsent. Kept in one place because the two used to be two refs that
+   * drifted apart — see src/lib/unsent-edit.ts for the edit that got lost.
+   */
+  const unsentRef = useRef(createUnsentEdit(initialRoom.content || ''));
   const uploadSeqRef = useRef(0);
 
   const formatTime = (isoString?: string) => {
@@ -115,6 +122,11 @@ export function TextEditor({
   /** Applies remote content while keeping the caret roughly where it was. */
   const applyRemoteContent = useCallback((next: string, updatedAt: string) => {
     lastUpdatedAtRef.current = updatedAt;
+    // Adopting the server's text also disarms the resend: this browser's
+    // unsent edit is gone from the screen, and resending what replaced it would
+    // send the room backwards. See src/lib/unsent-edit.ts.
+    unsentRef.current.superseded(next);
+    setSaveFailure(null);
 
     const textarea = textareaRef.current;
     const isFocused = textarea != null && textarea === document.activeElement;
@@ -171,46 +183,36 @@ export function TextEditor({
     [slug, router, applyRemoteContent]
   );
 
-  const performSave = useCallback(
+  /** One save, start to finish. Never called concurrently — see the queue below. */
+  const sendSave = useCallback(
     async (textToSave: string) => {
-      const seq = ++saveSeqRef.current;
-      pendingContentRef.current = null;
+      // This text is now in a request rather than waiting for one, so the
+      // teardown flush no longer owns it. Cleared here rather than at submit
+      // time so the window between the two belongs to the flush.
+      if (pendingContentRef.current === textToSave) pendingContentRef.current = null;
       setSaveStatus('saving');
 
       try {
         const res = await fetchWithTimeout(
           `/api/rooms/${slug}/save`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: textToSave }),
-          },
+          saveRequestInit(textToSave),
           SAVE_TIMEOUT_MS
         );
 
         const data = await res.json().catch(() => null);
 
         if (!res.ok) {
-          // A superseded save's failure is not this save's problem: a newer
-          // request is already in flight with newer text, and surfacing the old
-          // one would show an error for content that is about to be saved.
-          if (seq < appliedSeqRef.current) return;
-
           const failure = failureFromResponse(res.status, data, res.headers.get('Retry-After'));
-          // The exact text that did not land, kept verbatim. This is what the
-          // retry resends, and what stops a failed save from being a silent
-          // data loss the moment the tab closes.
-          failedContentRef.current = textToSave;
+          // Marks that something is unsaved. The retry sends the newest text
+          // rather than this copy, so what matters here is the flag, not the
+          // string — but keeping the string makes the two paths readable.
+          unsentRef.current.failed();
           setSaveFailure(failure);
           setSaveStatus('error');
           return;
         }
 
-        // A response from a superseded request tells us nothing useful.
-        if (seq < appliedSeqRef.current) return;
-        appliedSeqRef.current = seq;
-
-        failedContentRef.current = null;
+        unsentRef.current.saved();
         setSaveFailure(null);
 
         const newUpdatedAt = data?.updated_at || new Date().toISOString();
@@ -224,8 +226,7 @@ export function TextEditor({
           payload: { clientId: clientIdRef.current, updated_at: newUpdatedAt },
         });
       } catch (err) {
-        if (seq < appliedSeqRef.current) return;
-        failedContentRef.current = textToSave;
+        unsentRef.current.failed();
         setSaveFailure(
           failureFromThrown(err, typeof navigator === 'undefined' ? true : navigator.onLine)
         );
@@ -235,11 +236,44 @@ export function TextEditor({
     [slug]
   );
 
-  /** Resend the exact text the last save could not deliver. */
+  /**
+   * The queue is created once and reads the current sender through a ref, so
+   * the ordering guarantee survives a re-render without the queue being rebuilt
+   * mid-flight.
+   */
+  const senderRef = useRef<SaveSender>(async () => {});
+  useEffect(() => {
+    senderRef.current = sendSave;
+  }, [sendSave]);
+
+  const queueRef = useRef<SaveQueue | null>(null);
+  if (queueRef.current === null) {
+    queueRef.current = createSaveQueue((text) => senderRef.current(text));
+  }
+
+  /**
+   * Hand text to the queue.
+   *
+   * Saves are serialised rather than fired as they are produced. The server
+   * keeps whichever write arrives last, so two overlapping requests mean the
+   * older text can land second and silently undo the newer one — which is
+   * exactly what a retry firing next to a debounced save used to do.
+   */
+  const performSave = useCallback((textToSave: string) => {
+    // Deliberately not cleared here. Text handed to the queue is not text that
+    // has been sent, and until a request is actually built for it, it is what a
+    // teardown has to flush.
+    // `sendSave` reports failure through component state rather than by
+    // throwing, so this catch is only here to keep a future sender that does
+    // throw from surfacing as an unhandled rejection.
+    queueRef.current?.submit(textToSave).catch(() => {});
+  }, []);
+
+  /** Resend after a failure — always the newest text, never the one that failed. */
   const retrySave = useCallback(() => {
-    const pending = failedContentRef.current;
-    if (pending === null) return;
-    void performSave(pending);
+    const text = unsentRef.current.resend;
+    if (text === null) return;
+    performSave(text);
   }, [performSave]);
 
   const scheduleSave = useCallback(
@@ -263,31 +297,47 @@ export function TextEditor({
       showToast(`Đã cắt bớt nội dung vượt quá ${MAX_CHARS.toLocaleString()} ký tự`, 'error');
     }
 
+    unsentRef.current.edited(val);
     setContent(val);
     setSaveStatus('saving');
     scheduleSave(val);
   };
 
-  // Flush any pending save exactly once, on unmount. This used to only cancel
-  // the timer, which silently dropped up to a debounce window of typing every
-  // time someone navigated away — the last thing pasted being the thing most
-  // likely to be lost. `keepalive` is what lets the request outlive the page.
+  /**
+   * Flush the debounce window on unmount, and only on unmount.
+   *
+   * This covers in-app navigation and nothing else: React runs cleanups when a
+   * component unmounts, and closing a tab or following a link to another origin
+   * unmounts nothing. So someone who pastes a log and shuts the tab inside the
+   * debounce window still loses it — a real bug (GAP-4), deliberately not fixed
+   * here.
+   *
+   * The obvious fix, a `pagehide` listener firing the same keepalive request,
+   * was rejected: it would ship whatever is in the buffer to the server at the
+   * one moment the person is gone and cannot confirm anything, and PLAN.md
+   * Phase B is being built to make un-reviewed content reaching the server
+   * impossible. Widening that path a fortnight before inverting it is work in
+   * the wrong direction. The fix belongs in Phase B, where losing an
+   * unconfirmed draft to local storage is the correct behaviour rather than a
+   * silent upload. See FREEZE_NOTES.md on the legacy branch.
+   */
   useEffect(() => {
     return () => {
-      if (!saveTimeoutRef.current) return;
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
 
+      // Keyed on there being something unsent, not on the timer still running.
+      // Those came apart once saves were serialised: a debounce that fires
+      // while a request is in flight hands its text to the queue and clears the
+      // timer, so a flush that asked about the timer would find nothing and
+      // return, with the text still waiting behind the in-flight save.
       const pending = pendingContentRef.current;
       pendingContentRef.current = null;
       if (pending === null) return;
 
-      void fetch(`/api/rooms/${slug}/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: pending }),
-        keepalive: true,
-      }).catch(() => {
+      void fetch(`/api/rooms/${slug}/save`, saveRequestInit(pending, true)).catch(() => {
         // Nothing left to tell: the component is gone.
       });
     };
@@ -342,7 +392,7 @@ export function TextEditor({
     const update = () => {
       const online = navigator.onLine;
       setIsOffline(!online);
-      if (online && failedContentRef.current !== null) retrySave();
+      if (online && unsentRef.current.resend !== null) retrySave();
     };
 
     update();
