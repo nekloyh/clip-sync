@@ -37,8 +37,28 @@ export class FakeSupabase {
   storageRemoveFailures = 0;
   /** Every path a `remove` was asked to delete, in order. */
   readonly removeCalls: string[][] = [];
-  /** Set to make storage `list` fail, modelling a bad minute rather than absence. */
+  /** Set to make every storage `list` fail, modelling a bad minute rather than absence. */
   storageListFails = false;
+  /**
+   * Objects `remove` silently refuses to delete.
+   *
+   * Storage signals a partial removal in the returned list, not in `error`, so
+   * a caller that only checks `error` believes the folder is empty when it is
+   * not — and then deletes the rows that said what was in it.
+   */
+  readonly unremovable = new Set<string>();
+  /**
+   * Set to fail only the listings of a room's own folder, leaving the top-level
+   * scan working. The two are different failures: one room being unreadable is
+   * a reason to skip that room, while the bucket being unreadable means nothing
+   * was scanned at all — and a reconciler that reports those the same way calls
+   * an outage a clean bill of health.
+   */
+  storageRoomListFails = false;
+  /** Set to make every query against this table return an error. */
+  failingTable: string | null = null;
+  /** Set to make `rpc` report a failure the way PostgREST does: returned, not thrown. */
+  rpcFails = false;
 
   constructor(seed: Record<string, FakeRow[]> = {}) {
     for (const [table, rows] of Object.entries(seed)) {
@@ -76,11 +96,19 @@ export class FakeSupabase {
             // not treat it as one, and it must not, because "the previous
             // attempt succeeded and then crashed" is the most likely reason for
             // a retry.
-            for (const path of paths) this.objects.delete(path);
-            return { data: paths.map((name) => ({ name })), error: null };
+            // Storage reports what it removed, and a key that was never there
+            // is simply absent from that list rather than an error — "the
+            // previous attempt succeeded and then crashed" is the most likely
+            // reason for a retry. `unremovable` models the other half: an
+            // object Storage declines to delete without failing the call, which
+            // is how a partial removal actually arrives.
+            const removed = paths.filter(
+              (path) => !this.unremovable.has(path) && this.objects.delete(path)
+            );
+            return { data: removed.map((name) => ({ name })), error: null };
           },
           list: async (prefix: string) => {
-            if (this.storageListFails) {
+            if (this.storageListFails || (prefix && this.storageRoomListFails)) {
               return { data: null, error: { message: 'storage listing unavailable' } };
             }
             const inFolder = [...this.objects]
@@ -90,7 +118,13 @@ export class FakeSupabase {
           },
         }),
       },
-      rpc: async () => ({ data: null, error: null }),
+      // PostgREST reports a failed function call by *returning* an error, not by
+      // throwing. Modelling that is the point: a caller that only wraps this in
+      // try/catch never learns the call failed.
+      rpc: async () =>
+        this.rpcFails
+          ? { data: null, error: { code: 'PGRST202', message: 'function not found' } }
+          : { data: null, error: null },
     };
   }
 }
@@ -221,6 +255,10 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: unknown; count?: 
   }
 
   private async run(): Promise<{ data: unknown; error: unknown; count?: number }> {
+    if (this.db.failingTable === this.table) {
+      return { data: null, error: { code: 'XX000', message: 'database unavailable' } };
+    }
+
     const rows = this.db.rows(this.table);
 
     if (this.op === 'insert' || this.op === 'upsert') {

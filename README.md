@@ -1,8 +1,28 @@
 # ClipSync 🚀
 
-**ClipSync** là ứng dụng chia sẻ clipboard / ghi chú tạm thời và ảnh chụp màn hình đa thiết bị không cần đăng nhập. Mở cùng URL trên 2 máy (laptop, PC, điện thoại) để tự động đồng bộ văn bản & ảnh realtime.
+**ClipSync** thu thập bằng chứng chẩn đoán (text, log, ảnh màn hình) từ người dùng bên
+ngoài cho đội IT support — qua một phòng tạm thời có link, không cần tài khoản, không cần
+cài gì, tự hủy theo TTL và owner thu hồi được bất cứ lúc nào.
 
-Định hướng phát triển sản phẩm, kế hoạch Secure Support Handoff và backlog AI được mô tả tại [`docs/PRODUCT_ROADMAP.md`](./docs/PRODUCT_ROADMAP.md).
+Định vị đang xây (`PLAN.md` §1): **evidence integrity + zero-PII ingestion cho MSP**.
+Hai wedge đó — che dữ liệu nhạy cảm *trên máy khách trước khi upload*, và manifest có
+hash để chứng minh đã nhận gì — **chưa có trong bản hiện tại**; chúng là Phase B và
+Phase C. Trạng thái từng bất biến: [`docs/ENGINEERING_INVARIANTS.md`](./docs/ENGINEERING_INVARIANTS.md) §1.
+
+| Tài liệu | Nội dung |
+| --- | --- |
+| [`PLAN.md`](./PLAN.md) | **Nguồn chân lý hiện hành** — định vị, scope MVP, roadmap theo phase, KPI |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Mô hình branch, quality gate, quy trình release |
+| [`CHANGELOG.md`](./CHANGELOG.md) | Thay đổi theo release, kèm ghi chú triển khai |
+| [`KICKOFF.md`](./KICKOFF.md) | Cách mở session thực thi từng phase; mandate thay thế di sản |
+| [`docs/ENGINEERING_INVARIANTS.md`](./docs/ENGINEERING_INVARIANTS.md) | Ràng buộc kỹ thuật đúng ở mọi phase; nợ kiến trúc đã biết |
+| [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) | Runbook, alert, cleanup lifecycle, suy giảm rate limiter |
+| [`docs/ANALYTICS.md`](./docs/ANALYTICS.md) | Event dictionary và chính sách privacy của telemetry |
+| [`docs/discovery/INTERVIEW_GUIDE.md`](./docs/discovery/INTERVIEW_GUIDE.md) | Kit Phase V — kịch bản phỏng vấn 15 đội |
+| [`docs/discovery/PILOT_SCORECARD.md`](./docs/discovery/PILOT_SCORECARD.md) | Kit Phase V — scorecard cho mỗi concierge pilot |
+| [`docs/discovery/PHASE_V_EVIDENCE.md`](./docs/discovery/PHASE_V_EVIDENCE.md) | Kit Phase V — bảng roll-up bốn gate G1–G4 và kill rule |
+| [`docs/qa/`](./docs/qa/) | Phương pháp QA (mỗi kết luận mang loại bằng chứng của nó) + bản ghi 2026-08-29 |
+| [`docs/PRODUCT_ROADMAP.md`](./docs/PRODUCT_ROADMAP.md) | **Tham khảo lịch sử** — định vị 08/2026, đã bị `PLAN.md` thay |
 
 ---
 

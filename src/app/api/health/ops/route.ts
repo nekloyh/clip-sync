@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { readJobSnapshots } from '@/lib/ops';
-import { openFindings } from '@/lib/reconcile';
+import { openFindings, countOpenFindings } from '@/lib/reconcile';
 import { pendingDeletionCount, failedDeletionCount } from '@/lib/lifecycle';
 import { fail, ERR_INTERNAL } from '@/lib/http';
 import { ErrorCode } from '@/lib/errors';
@@ -45,10 +45,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [jobs, pending, failed, findings] = await Promise.all([
+    const [jobs, pending, failed, openCount, findings] = await Promise.all([
       readJobSnapshots(),
       pendingDeletionCount(),
       failedDeletionCount(),
+      // Counted, not measured from the page below. `openFindings` is capped so
+      // the response stays small, and reporting that cap as the total made the
+      // "findings rising steadily" alert saturate at the page size — blind from
+      // the exact point it was written to watch.
+      countOpenFindings(),
       openFindings(20),
     ]);
 
@@ -57,7 +62,7 @@ export async function GET(req: NextRequest) {
         jobs,
         deletionQueue: { pending, failed },
         reconciliation: {
-          openFindings: findings.length,
+          openFindings: openCount,
           // Kinds and timestamps only - enough to see a pattern forming, and
           // not enough to locate the objects involved.
           recent: findings.map((finding) => ({

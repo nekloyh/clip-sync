@@ -16,13 +16,40 @@
 Quy tắc chung: **một feature branch = một session**, bắt đầu từ `develop` mới pull,
 kết thúc bằng PR + CI xanh. Không để session "tiện tay" làm lan sang feature khác.
 
+## 1b. Mandate: quyền đập bỏ di sản
+
+Repo này mang theo di sản của định vị cũ ("clipboard đa thiết bị" → "secure support
+handoff" phiên bản 08/2026). Nghiên cứu thị trường 09/2026 (PLAN.md §1) đã thay định vị
+bằng **evidence integrity + zero-PII ingestion cho MSP**. Vì vậy mọi session thực thi:
+
+- **Được quyền** xoá, viết lại hoặc thay thế code/docs/kiến trúc cũ khi chúng phục vụ
+  định vị cũ hoặc có giải pháp tốt hơn ở hiện tại — kể cả nội dung trong
+  `docs/PRODUCT_ROADMAP.md`, `docs/ARCHITECTURE_ROADMAP.md` và WIP đóng băng.
+  Các tài liệu đó là **tham khảo lịch sử, không phải ràng buộc**; PLAN.md thắng khi
+  mâu thuẫn, và chính PLAN.md cũng được thách thức nếu có bằng chứng mới hơn.
+- **Phải giữ** bốn rào an toàn (không thương lượng): (1) mọi thay đổi qua feature
+  branch + PR + CI xanh; (2) branch `legacy/*` là backup — không xoá, không sửa (trừ
+  FREEZE_NOTES.md); (3) các bất biến bảo mật: không log content/PIN/filename nhạy cảm,
+  server-only DB/storage access, owner-capability semantics; (4) đập cái gì phải ghi
+  lý do trong PR description để truy vết được quyết định.
+- Tiêu chí phân xử khi phân vân: *"cái này có phục vụ wedge zero-PII ingestion /
+  evidence integrity / MSP không?"* — không phục vụ thì là ứng viên để cắt, bất kể
+  đã tốn bao nhiêu công. Sunk cost không phải lý do giữ.
+
 ## 2. Prompt kickoff chính — Phase A (paste nguyên khối vào session mới)
 
 > Model: Opus 5 · Effort: xhigh · Thư mục: `~/Projects/clip-sync`
 
 ```text
-Đọc PLAN.md và CONTRIBUTING.md của repo này trước khi làm bất cứ việc gì. Đọc thêm
-FREEZE_NOTES.md trên branch legacy/2026-09-pilot-readiness-wip để biết WIP nào đang đóng băng.
+Đọc PLAN.md (đặc biệt §1 — định vị mới từ market research 09/2026), KICKOFF.md §1b
+(mandate đập bỏ di sản) và CONTRIBUTING.md của repo này trước khi làm bất cứ việc gì.
+Đọc thêm FREEZE_NOTES.md trên branch legacy/2026-09-pilot-readiness-wip.
+
+Nguyên tắc nền: định vị hiện hành là "evidence integrity + zero-PII ingestion cho MSP".
+Mọi code/docs/kiến trúc cũ trong repo chỉ là di sản của các định vị trước — bạn được
+quyền xoá hoặc viết lại chúng nếu không phục vụ định vị mới hoặc bạn có giải pháp tốt
+hơn, miễn tuân thủ 4 rào an toàn trong KICKOFF.md §1b. Đừng bảo tồn thứ gì chỉ vì nó
+đã được viết công phu.
 
 Nhiệm vụ: thực thi Phase A của PLAN.md §3 theo đúng quy trình CONTRIBUTING.md.
 
@@ -30,29 +57,35 @@ Nhiệm vụ: thực thi Phase A của PLAN.md §3 theo đúng quy trình CONTRI
    npm run typecheck && npm run lint && npm test && npm run build.
    Tất cả phải xanh trước khi bắt đầu; nếu đỏ, dừng và báo tôi.
 
-1. feature/restore-discovery-docs: cherry-pick docs/discovery, docs/qa và
-   docs/ARCHITECTURE_ROADMAP.md từ legacy/2026-09-pilot-readiness-wip về một feature
-   branch tạo từ develop. Link các docs này từ README. Mở PR vào develop.
+1. feature/restore-discovery-docs: lấy docs/discovery, docs/qa từ branch legacy về,
+   nhưng CẬP NHẬT theo định vị mới trước khi merge (interview guide, scorecard phải
+   phản ánh wedge zero-PII/integrity/MSP, không phải wedge cũ). docs/ARCHITECTURE_ROADMAP.md
+   chỉ khôi phục nếu còn giá trị sau khi đối chiếu PLAN.md — nếu lỗi thời, để nó nằm
+   lại trên legacy và ghi rõ trong PR. Mở PR vào develop.
 
-2. feature/pilot-hardening: review phần diff lifecycle/reconcile/cron/pin trên branch
-   legacy (git diff main...legacy/2026-09-pilot-readiness-wip -- src/) như một reviewer
-   khó tính: chỉ cherry-pick những thay đổi đã chín (có test đi kèm, không đổi hành vi
-   ngoài chủ đích). Phần chưa chín thì liệt kê lý do bỏ lại trong mô tả PR. Mọi test
-   mới phải pass; quality gate 4 bước phải xanh.
+2. feature/pilot-hardening: review diff lifecycle/reconcile/cron/pin trên legacy
+   (git diff main...legacy/2026-09-pilot-readiness-wip -- src/) như một reviewer khó
+   tính, dưới lăng kính định vị mới: chỉ lấy những thay đổi đã chín VÀ phục vụ
+   pilot/wedge mới; phần còn lại bỏ, ghi lý do trong PR. Được refactor mạnh tay thay vì
+   cherry-pick nguyên trạng nếu cách đó cho kết quả sạch hơn. Quality gate 4 bước xanh.
 
 3. feature/save-queue: timebox 4 giờ. Đánh giá save-queue.ts + TextEditor refactor trên
-   legacy: hoàn thiện được trong timebox thì hoàn thiện kèm test đầy đủ; không thì ghi
-   "rejected + lý do" vào FREEZE_NOTES.md (commit lên branch legacy) và bỏ, không kéo dài.
+   legacy theo cùng lăng kính — lưu ý: text sync là tính năng của định vị clipboard cũ;
+   nếu nó không còn quan trọng cho evidence workflow thì mạnh dạn reject, ghi
+   "rejected + lý do" vào FREEZE_NOTES.md (commit lên branch legacy) và chuyển thời
+   gian dư cho Phase B.
 
-Ràng buộc cứng:
+Ràng buộc cứng (4 rào an toàn — không thương lượng):
 - Không commit trực tiếp lên develop hoặc main; mọi thứ qua feature branch + PR.
 - Không phát triển tiếp trên branch legacy/* (chỉ được sửa FREEZE_NOTES.md của nó).
-- Không log content/PIN/filename nhạy cảm — giữ nguyên các test bất biến trong
-  src/test/room-authz và log test.
-- Mỗi PR chạy /code-review trước khi merge; CI xanh mới merge.
+- Không log content/PIN/filename nhạy cảm — giữ các test bất biến trong
+  src/test/room-authz và log test; giữ server-only DB/storage và owner-capability
+  semantics.
+- Mỗi PR chạy /code-review trước khi merge; CI xanh mới merge; mọi quyết định "đập"
+  phải có lý do trong PR description.
 
-Kết thúc: báo cáo PR nào đã mở/merge, trạng thái CI, quyết định save-queue, và việc
-còn treo cho session sau.
+Kết thúc: báo cáo PR nào đã mở/merge, trạng thái CI, những di sản đã đập bỏ + lý do,
+quyết định save-queue, và việc còn treo cho session sau.
 ```
 
 ## 3. Prompt cho các phase sau (mỗi phase một session mới)
@@ -62,9 +95,12 @@ còn treo cho session sau.
 > Session 1 (thiết kế): Fable 5 hoặc Opus 5, effort max. Session 2+ (implement): Opus 5, xhigh.
 
 ```text
-Đọc PLAN.md §1–§3 (Phase B) và CONTRIBUTING.md. Nhiệm vụ: [thiết kế threat model +
-detector spec | implement feature/redaction-engine | implement feature/redaction-preview-ui
-| xây feature/redaction-eval-set] theo DoD trong PLAN.md §3 Phase B.
+Đọc PLAN.md §1–§3 (Phase B), KICKOFF.md §1b và CONTRIBUTING.md. Nhiệm vụ: [thiết kế
+threat model + detector spec | implement feature/redaction-engine | implement
+feature/redaction-preview-ui | xây feature/redaction-eval-set] theo DoD trong PLAN.md
+§3 Phase B. Thiết kế từ nguyên lý và bối cảnh hiện tại — không bị ràng buộc bởi flow/
+kiến trúc cũ của repo; nếu upload flow hiện tại cản trở zero-PII ingestion, đề xuất
+và thực hiện thay thế nó (kèm lý do trong PR).
 Ràng buộc: engine chạy 100% client-side, 0 network call cho nội dung; eval set ≥100 mẫu
 VI/EN; FP/FN đo được và chạy trong CI như regression test. Làm trên feature branch từ
 develop, PR + CI xanh.

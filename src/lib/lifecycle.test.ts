@@ -201,6 +201,48 @@ describe('claiming work', () => {
     expect(await claimDeletionBatch(10)).toEqual([]);
   });
 
+  it('refuses to let a second worker claim a room that is already leased', async () => {
+    // The room was queued an hour ago and the cron only runs hourly, so by the
+    // time any worker sees it the request is already older than the staleness
+    // window. That is the ordinary case, not an unusual one.
+    seed([
+      room({
+        lifecycle_state: 'deletion_pending',
+        deletion_requested_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+      }),
+    ]);
+
+    expect(await claimDeletionBatch(10)).toHaveLength(1);
+
+    // Second worker, same moment. It used to take the room off the first one:
+    // the claim never moved `deletion_requested_at`, so the row still looked
+    // like it had been sitting untouched for an hour, and the staleness test
+    // ran in JavaScript where it could not see the claim that had just landed.
+    expect(await claimDeletionBatch(10)).toEqual([]);
+  });
+
+  it('renews the lease when it claims', async () => {
+    const queuedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    seed([room({ lifecycle_state: 'deletion_pending', deletion_requested_at: queuedAt })]);
+
+    await claimDeletionBatch(10);
+
+    // The timestamp is the lease clock as well as the queue order: it means
+    // "available to a worker since", and a claim is what makes it now.
+    expect(String(roomRow().deletion_requested_at) > queuedAt).toBe(true);
+  });
+
+  it('hands a room to exactly one of two workers racing for it', async () => {
+    seed([room({ lifecycle_state: 'deletion_pending', deletion_requested_at: '2026-01-01' })]);
+
+    const [a, b] = await Promise.all([claimDeletionBatch(10), claimDeletionBatch(10)]);
+
+    // Both may read the row; only one may move it. The predicate that decides
+    // lives in the UPDATE, so the loser matches nothing rather than being told
+    // it won by a check that ran before the winner wrote.
+    expect(a.length + b.length).toBe(1);
+  });
+
   it('claims oldest-request-first so successive runs make progress', async () => {
     seed([
       room({ id: 'newer', lifecycle_state: 'deletion_pending', deletion_requested_at: '2026-02-01' }),
@@ -227,6 +269,69 @@ describe('processing a deletion', () => {
     expect(H.db.rows('attachments')).toEqual([]);
     expect(H.db.rows('rooms')).toEqual([]);
     expect(eventNames()).toContain('room_deleted');
+  });
+
+  it('removes an object no row points at any more', async () => {
+    seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
+    // An upload stored its object and then failed to write the row, and the
+    // compensating remove failed too. Nothing references this object, so a
+    // sweep driven only by the attachment rows leaves it behind at the one
+    // moment the product promises the room's data is gone — and leaves it there
+    // forever, because nothing retries what nothing can attribute.
+    H.db.objects.add(`${ROOM_ID}/unreferenced.png`);
+
+    const outcome = await processRoomDeletion(ROOM_ID, 0);
+
+    expect(outcome.state).toBe('deleted');
+    expect(H.db.objects.size).toBe(0);
+    expect(H.db.removeCalls.flat()).toContain(`${ROOM_ID}/unreferenced.png`);
+  });
+
+  it('keeps the room when storage quietly declines to delete part of it', async () => {
+    seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
+    // Storage reports a partial removal in the list it returns, not in `error`.
+    // A sweep that stops at "the remove call did not fail" therefore believes
+    // the folder is empty, deletes the rows naming what is still in it, and
+    // then deletes the room row — leaving an object nothing can attribute, at
+    // the exact moment the product says the room's data is gone.
+    H.db.unremovable.add(ATTACHMENTS[1].storage_path as string);
+
+    const outcome = await processRoomDeletion(ROOM_ID, 0);
+
+    expect(outcome.state).toBe('deletion_pending');
+    expect(H.db.objects.has(ATTACHMENTS[1].storage_path as string)).toBe(true);
+    // The rows are the only record of what is still there, so they outlive the
+    // failure and the next run can finish the job.
+    expect(H.db.rows('attachments')).toHaveLength(2);
+    expect(H.db.rows('rooms')).toHaveLength(1);
+  });
+
+  it('counts what storage removed, not what it was asked to remove', async () => {
+    seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
+    // A row pointing at an object that is already gone: the drift the
+    // reconciler calls `db_without_object`. Storage accepts the remove without
+    // complaint, so counting the request would report a deletion that never
+    // happened into the figure /api/health/ops publishes.
+    H.db.objects.delete(ATTACHMENTS[0].storage_path as string);
+
+    const outcome = await processRoomDeletion(ROOM_ID, 0);
+
+    expect(outcome.state).toBe('deleted');
+    expect(outcome.deletedObjects).toBe(1);
+  });
+
+  it('keeps the room when it cannot even list what the room holds', async () => {
+    seed([room({ lifecycle_state: 'deleting' })], ATTACHMENTS);
+    H.db.storageListFails = true;
+
+    const outcome = await processRoomDeletion(ROOM_ID, 0);
+
+    // Same rule as a failed remove: a listing error is not evidence the folder
+    // is empty, and deleting the rows on that evidence destroys the only record
+    // of what is still there.
+    expect(outcome.state).toBe('deletion_pending');
+    expect(H.db.rows('attachments')).toHaveLength(2);
+    expect(H.db.rows('rooms')).toHaveLength(1);
   });
 
   it('keeps every database row when storage refuses', async () => {

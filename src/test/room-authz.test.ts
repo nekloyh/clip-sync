@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 
 /**
  * Authorization tests at the API level, not the helper level.
@@ -28,9 +29,17 @@ const H = vi.hoisted(() => {
       roomUpdateMatches: true,
       // Same, for queuing a deletion: the conditional update matched nothing.
       deletionAccepted: true,
+      // Lets a test model the object landing in storage and the row failing to
+      // be written — the one ordering that can leave an object nothing
+      // references.
+      attachmentInsertFails: false,
       /** Every `.eq(column, value)` a handler applied, so filters can be asserted. */
       filters: [] as { table: string; column: string; value: unknown }[],
     },
+    /** How many `createRoom` calls should report the locator as already taken. */
+    createCollisions: 0,
+    /** Every locator `createRoom` was asked for, in order. */
+    createAttempts: [] as string[],
   };
 });
 
@@ -46,6 +55,14 @@ vi.mock('@/lib/rooms', () => ({
   attachmentUrl: (slug: string, id: string) => `/api/rooms/${slug}/attachments/${id}`,
   getRoom: async (slug: string) => H.rooms.get(slug) ?? null,
   createRoom: async (slug: string, ownerSecretHash: string) => {
+    H.createAttempts.push(slug);
+    // A locator taken by somebody else. Modelled as a counter rather than by
+    // pre-seeding a slug, because the route asks the generator for the locator
+    // and a test cannot know which one it will get.
+    if (H.createCollisions > 0) {
+      H.createCollisions -= 1;
+      return null;
+    }
     if (H.rooms.has(slug)) return null;
     const now = new Date().toISOString();
     const room = {
@@ -109,10 +126,16 @@ vi.mock('@/lib/supabase/server', () => {
       in: () => c,
       order: () => c,
       limit: () => c,
-      single: async () =>
-        table === 'attachments'
-          ? { data: { id: 'new-att', room_id: 'r', filename: 'a.png', mime: 'image/png', size: 8, created_at: new Date().toISOString() }, error: null }
-          : settle(),
+      single: async () => {
+        if (table !== 'attachments') return settle();
+        if (H.db.attachmentInsertFails) {
+          return { data: null, error: { code: '23503', message: 'insert failed' } };
+        }
+        return {
+          data: { id: 'new-att', room_id: 'r', filename: 'a.png', mime: 'image/png', size: 8, created_at: new Date().toISOString() },
+          error: null,
+        };
+      },
       maybeSingle: async () => settle(),
       then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
         Promise.resolve(settle()).then(res, rej),
@@ -154,7 +177,7 @@ import {
   ownerSecretFromToken,
   tokenExpiryMs,
 } from '@/lib/owner-auth';
-import { accessCookieName } from '@/lib/room-auth';
+import { accessCookieName, verifyAccessToken } from '@/lib/room-auth';
 import { memoryStore, setSharedStore } from '@/lib/limiter';
 import {
   OWNER_COOKIE,
@@ -177,7 +200,10 @@ beforeEach(() => {
   H.db.storageRemoved.length = 0;
   H.db.roomUpdateMatches = true;
   H.db.deletionAccepted = true;
+  H.db.attachmentInsertFails = false;
   H.db.filters.length = 0;
+  H.createCollisions = 0;
+  H.createAttempts.length = 0;
   setSharedStore(null);
   memoryStore.reset();
 });
@@ -811,6 +837,146 @@ describe('the room can change between the guard and the mutation', () => {
       column: 'owner_version',
       value: room.owner_version,
     });
+  });
+
+  it('refuses a save for a room that was queued for deletion mid-request', async () => {
+    const slug = 'quiet-fox-race0005';
+    seedOwnedRoom(slug);
+
+    // The guard read an active room; by the time the write ran the owner had
+    // pressed delete. Without the `active` predicate the room would quietly go
+    // back to being written to while the worker was destroying it.
+    H.db.roomUpdateMatches = false;
+
+    const res = await saveRoute(jsonRequest(`/api/rooms/${slug}/save`, { content: 'late' }), {
+      params: { slug },
+    });
+
+    expect(res.status).toBe(404);
+    expect(H.db.filters).toContainEqual({
+      table: 'rooms',
+      column: 'lifecycle_state',
+      value: 'active',
+    });
+  });
+
+  it('scopes a legacy PIN upgrade to a room that is still active', async () => {
+    const slug = 'quiet-fox-race0006';
+    // A pre-scrypt digest: sha256('clipsync-salt:<slug>:1234').
+    const legacy = createHash('sha256').update(`clipsync-salt:${slug}:1234`).digest('hex');
+    seedRoom(slug, { pin_hash: legacy });
+
+    const res = await pinRoute(
+      jsonRequest(`/api/rooms/${slug}/pin`, { action: 'verify', pin: '1234' }),
+      { params: { slug } }
+    );
+
+    expect((await res.json()).verified).toBe(true);
+    // The upgrade is a write like any other, and it was the one write in the
+    // codebase that did not say which room it was allowed to land on.
+    expect(H.db.filters).toContainEqual({
+      table: 'rooms',
+      column: 'lifecycle_state',
+      value: 'active',
+    });
+  });
+
+  it('does not hand out an unlock cookie the room cannot honour', async () => {
+    const slug = 'quiet-fox-race0007';
+    const legacy = createHash('sha256').update(`clipsync-salt:${slug}:1234`).digest('hex');
+    seedRoom(slug, { pin_hash: legacy });
+    // The room was queued for deletion between the read and the upgrade, so the
+    // scoped write matches nothing and the database keeps the legacy digest.
+    H.db.roomUpdateMatches = false;
+
+    const res = await pinRoute(
+      jsonRequest(`/api/rooms/${slug}/pin`, { action: 'verify', pin: '1234' }),
+      { params: { slug } }
+    );
+
+    expect((await res.json()).verified).toBe(true);
+
+    // The cookie is bound to a hash, and `hasRoomAccess` checks it against the
+    // hash the room actually holds. Binding it to the upgrade that did not land
+    // would lock a recipient who typed the *correct* PIN out of the room, on
+    // every retry — a regression the scoping predicate introduces unless the
+    // result of the write is read back.
+    const cookie = setCookies(res).find((c) => c.startsWith(`${accessCookieName(slug)}=`));
+    const token = decodeURIComponent(cookie!.split('=')[1].split(';')[0]);
+    expect(verifyAccessToken(token, slug, legacy)).toBe(true);
+  });
+});
+
+describe('two callers arriving at once', () => {
+  it('picks another locator when the first one is already taken', async () => {
+    H.createCollisions = 2;
+
+    const res = await createRoomRoute(jsonRequest('/api/rooms', {}));
+
+    // The old code answered a collision by handing back the *existing* room,
+    // which made the second person to pick a name indistinguishable from its
+    // creator. Retrying is the whole difference.
+    expect(res.status).toBe(200);
+    expect((await res.json()).isExisting).toBe(false);
+    expect(H.createAttempts).toHaveLength(3);
+    expect(new Set(H.createAttempts).size).toBe(3);
+  });
+
+  it('gives up rather than looping forever when every locator collides', async () => {
+    H.createCollisions = 99;
+
+    const res = await createRoomRoute(jsonRequest('/api/rooms', {}));
+
+    expect(res.status).toBe(503);
+    expect(H.rooms.size).toBe(0);
+  });
+
+  it('removes the stored object when the attachment row cannot be written', async () => {
+    const slug = 'quiet-fox-orphan01';
+    seedOwnedRoom(slug);
+    H.db.attachmentInsertFails = true;
+
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
+    const form = new FormData();
+    form.append('file', new File([png], 'shot.png', { type: 'image/png' }));
+
+    const res = await uploadRoute(
+      new NextRequest(`http://localhost/api/rooms/${slug}/attachments`, {
+        method: 'POST',
+        body: form,
+      }),
+      { params: { slug } }
+    );
+
+    // Upload writes the object first and the row second, so this ordering is
+    // the one that can leave bytes nothing references — in a product whose
+    // promise is that data goes away on a schedule.
+    expect(res.status).toBe(500);
+    expect(H.db.storageRemoved).toHaveLength(1);
+    expect(H.db.storageRemoved[0]).toContain(`id-${slug}/`);
+  });
+
+  it('says nothing about the provider when it cleans up after itself', async () => {
+    const slug = 'quiet-fox-orphan02';
+    seedOwnedRoom(slug);
+    H.db.attachmentInsertFails = true;
+
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
+    const form = new FormData();
+    form.append('file', new File([png], 'credentials.png', { type: 'image/png' }));
+
+    const res = await uploadRoute(
+      new NextRequest(`http://localhost/api/rooms/${slug}/attachments`, {
+        method: 'POST',
+        body: form,
+      }),
+      { params: { slug } }
+    );
+
+    const text = await res.text();
+    expect(text).not.toContain('credentials');
+    expect(text).not.toContain(slug);
+    expect(text).not.toContain('insert failed');
   });
 });
 

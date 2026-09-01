@@ -48,7 +48,12 @@ export const EVENTS = {
   ROOM_DELETED: 'room_deleted',
   /** The 7-day TTL claimed the room rather than a person. */
   ROOM_EXPIRED: 'room_expired',
-  /** A cleanup run could not finish its work. Repeatable: one per failed run. */
+  /**
+   * Cleanup could not finish. Two shapes, both countable: one per room the
+   * worker failed to delete (carries `room_ref`), and one for a run that
+   * collapsed before reaching any room at all (no `room_ref`, because no
+   * room is what that one is about). See docs/ANALYTICS.md §2.
+   */
   CLEANUP_FAILED: 'cleanup_failed',
 } as const;
 

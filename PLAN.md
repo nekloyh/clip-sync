@@ -1,8 +1,11 @@
 # PLAN — ClipSync / Secure Support Evidence
 
 > Ngày lập: 2026-09-01 · Trên nền baseline `main` @ `72f13ca` (tag `v0.2.0`)
-> Quy trình branch: xem [CONTRIBUTING.md](./CONTRIBUTING.md)
-> Thay thế định hướng cũ trong `docs/PRODUCT_ROADMAP.md` ở những điểm mâu thuẫn.
+> Quy trình branch: xem [CONTRIBUTING.md](./CONTRIBUTING.md) · Kickoff session: [KICKOFF.md](./KICKOFF.md)
+> PLAN.md là nguồn chân lý hiện hành. `docs/PRODUCT_ROADMAP.md` và
+> `docs/ARCHITECTURE_ROADMAP.md` (trên legacy) là **tham khảo lịch sử** của các định vị
+> trước — session thực thi được quyền viết lại/loại bỏ chúng theo mandate trong
+> KICKOFF.md §1b. Chính PLAN.md cũng phải nhường chỗ khi có bằng chứng thị trường mới hơn.
 
 ## 1. Bối cảnh quyết định (market review 09/2026)
 
@@ -77,7 +80,7 @@ screen capture".
 | `feature/restore-discovery-docs` | Cherry-pick `docs/discovery`, `docs/qa` từ `legacy/2026-09-pilot-readiness-wip` | Docs trên `develop`, link từ README |
 | `feature/pilot-hardening` | Review + cherry-pick phần lifecycle/reconcile/cron WIP từ legacy (bỏ phần chưa chín) | Typecheck/lint/test/build xanh; test mới pass; không còn diff "mồ côi" |
 | `feature/save-queue` | Đánh giá save-queue WIP: hoàn thiện hoặc bỏ hẳn (quyết định trong 4 h đầu) | Hoặc merge với test đầy đủ, hoặc ghi "rejected" vào FREEZE_NOTES |
-| (đã xong ở bootstrap) | CI workflow, CONTRIBUTING, PLAN | CI xanh trên `dev` |
+| (đã xong ở bootstrap) | CI workflow, CONTRIBUTING, PLAN | CI xanh trên `develop` |
 
 Ưu tiên: cao — mở đường cho mọi phase sau. 
 
@@ -118,18 +121,18 @@ key trong URL fragment, independent security review trước khi quảng cáo E2
 ## 4. CI/CD & branch protection
 
 - **CI** (`.github/workflows/ci.yml`, đã có): typecheck → lint → test → build
-  cho mọi push/PR vào `main`/`dev`.
+  cho mọi push/PR vào `main`/`develop`.
 - **CD:** Vercel preview cho PR; production deploy từ `main` (lưu ý Hobby plan
   chỉ cho non-commercial — pilot thương mại phải nâng plan hoặc chuyển hạ tầng,
   quyết định ở Phase D).
-- **Branch protection (chờ phê duyệt để apply):**
+- **Branch protection (ĐÃ APPLY 2026-09-01):**
   - `main`: require PR, require status check `verify`, block force-push,
     block deletion.
-  - `develop`: require status check `verify`, block force-push.
+  - `develop`: require status check `verify`, block force-push, block deletion.
   - Approval count 0 (solo) — nâng 1 khi có collaborator.
 
 ```bash
-# Apply sau khi được phê duyệt:
+# Lệnh đã dùng (giữ lại để tái áp dụng/chỉnh khi cần):
 gh api -X PUT repos/nekloyh/clip-sync/branches/main/protection \
   -F required_status_checks[strict]=true \
   -F "required_status_checks[contexts][]=verify" \
