@@ -35,10 +35,12 @@ export function ThemeToggle() {
       variant="ghost"
       size="icon"
       onClick={toggle}
+      title={isDark ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
       aria-label={isDark ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+      className="text-foreground-tertiary hover:text-foreground hover:bg-muted/70"
     >
       {/* Render nothing until mounted so the icon cannot flash the wrong state. */}
-      {mounted && (isDark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />)}
+      {mounted && (isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />)}
     </Button>
   );
 }

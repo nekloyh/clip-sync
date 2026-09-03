@@ -132,32 +132,38 @@ export function AttachmentGrid({
 
   return (
     <>
-      <section className="hairline-t shrink-0 bg-background">
-        <div className="flex h-8 items-center justify-between px-3 font-mono text-xs text-foreground-tertiary sm:px-4">
-          {/* The count is confirmed attachments only. A pending or failed
-              upload is not an attachment, and counting it here would be the
-              same overstatement the tiles are careful to avoid. */}
-          <span>Ảnh đính kèm {attachments.length}/20</span>
+      <section className="hairline-t shrink-0 bg-card/60 backdrop-blur-sm">
+        <div className="flex h-9 items-center justify-between px-3.5 text-xs text-muted-foreground sm:px-5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground">
+              Ảnh đính kèm ({attachments.length}/20)
+            </span>
+            <span className="hidden sm:inline text-foreground-tertiary">
+              · Tối đa 5MB/ảnh
+            </span>
+          </div>
           {failedCount > 0 ? (
-            <span className="text-[var(--dark-red)]">
-              {failedCount} ảnh chưa tải lên được
+            <span className="font-medium text-[var(--dark-red)]">
+              {failedCount} ảnh tải lên chưa thành công
             </span>
           ) : (
-            <span className="hidden sm:inline">Ctrl+V hoặc kéo thả</span>
+            <span className="hidden sm:inline text-foreground-tertiary">
+              Dán (Ctrl+V) hoặc kéo thả vào ô soạn thảo
+            </span>
           )}
         </div>
 
-        <div className="grid max-h-[34vh] grid-cols-3 gap-2 overflow-y-auto px-3 pb-3 sm:grid-cols-5 sm:px-4 sm:pb-4 lg:grid-cols-8">
+        <div className="grid max-h-[36vh] grid-cols-2 gap-2.5 overflow-y-auto p-3.5 sm:grid-cols-4 sm:p-5 lg:grid-cols-6 xl:grid-cols-8">
           {pending.map((entry) =>
             entry.status === 'uploading' ? (
               <div
                 key={entry.id}
                 title={`Đang tải lên ${entry.name}`}
-                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border-contrast"
+                className="flex aspect-square flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 p-2"
               >
                 <Loader2 className="h-4 w-4 animate-spin text-foreground-tertiary" />
-                <span className="px-1 text-center font-mono text-[10px] text-foreground-tertiary">
-                  Đang tải
+                <span className="px-1 text-center font-mono text-[10px] text-foreground-tertiary truncate max-w-full">
+                  Đang tải…
                 </span>
               </div>
             ) : (
@@ -173,28 +179,27 @@ export function AttachmentGrid({
           {attachments.map((att) => (
             <figure
               key={att.id}
-              className="group relative aspect-square overflow-hidden rounded-md border border-border bg-muted"
+              className="group relative aspect-square overflow-hidden rounded-xl border border-border/80 bg-muted/50 shadow-xs transition-all hover:shadow-card hover:border-border-contrast"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={att.url}
                 alt={att.filename}
                 loading="lazy"
-                className="h-full w-full cursor-pointer object-cover"
+                className="h-full w-full cursor-pointer object-cover transition-transform duration-200 group-hover:scale-105"
                 onClick={() => setSelectedImage(att)}
               />
 
-              {/* Actions stay hidden until hover, and are always reachable by
-                  keyboard through the lightbox. */}
-              <figcaption className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-0.5 bg-background/90 p-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              {/* Actions bar on hover */}
+              <figcaption className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-background/90 backdrop-blur-sm p-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                 <IconAction label="Phóng to" onClick={() => setSelectedImage(att)}>
-                  <Maximize2 className="h-3 w-3" />
+                  <Maximize2 className="h-3.5 w-3.5" />
                 </IconAction>
-                <IconAction label="Chép ảnh" onClick={() => handleCopyImage(att)}>
-                  <Copy className="h-3 w-3" />
+                <IconAction label="Sao chép ảnh" onClick={() => handleCopyImage(att)}>
+                  <Copy className="h-3.5 w-3.5" />
                 </IconAction>
                 <IconAction label="Tải về" onClick={() => handleDownloadImage(att)}>
-                  <Download className="h-3 w-3" />
+                  <Download className="h-3.5 w-3.5" />
                 </IconAction>
                 {canDelete && (
                   <IconAction
@@ -204,9 +209,9 @@ export function AttachmentGrid({
                     className="hover:bg-[var(--light-red)] hover:text-[var(--dark-red)]"
                   >
                     {deletingId === att.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     )}
                   </IconAction>
                 )}

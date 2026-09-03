@@ -3,105 +3,97 @@
 @tailwind utilities;
 
 /*
- * Token set adapted from Langfuse's application theme.
- *
- * Three things carry the whole look and are worth stating explicitly:
- *   1. Greys are pure neutral (hue 0, saturation 0). Never blue-tinted.
- *   2. Body text sits at 70% grey in dark mode, not white. Full contrast is
- *      spent only on the few things that matter.
- *   3. The header is DARKER than the page, and the writing surface is darker
- *      still. Depth comes from that inversion plus hairline borders — never
- *      from shadows or blur.
+ * ClipSync Design System — "Calm Productivity"
+ * Inspired by modern, human-centric productivity tools (Linear, Notion, Dropbox, Raycast).
+ * Built for clarity, instant comprehension, and comfortable day-to-day office & multi-device use.
  */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --foreground-tertiary: 215 12% 62%;
+    --background: 240 5% 98%;
+    --foreground: 240 6% 10%;
+    --foreground-tertiary: 240 4% 56%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 240 5% 94%;
+    --muted-foreground: 240 4% 46%;
 
     --card: 0 0% 100%;
     --popover: 0 0% 100%;
-    --header: 210 40% 98%;
-    --surface-code: 0 0% 92%;
+    --header: 240 5% 98%;
+    --surface-code: 240 5% 95%;
 
-    --border: 214.3 31.8% 91.4%;
-    --border-contrast: 214.3 20% 80%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 243 75.4% 58.6%;
+    --border: 240 6% 90%;
+    --border-contrast: 240 6% 80%;
+    --input: 240 6% 90%;
+    --ring: 240 6% 20%;
 
-    /* Inverted by design: the primary action is near-black on light, and
-       near-white on dark. */
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 240 6% 10%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 240 5% 93%;
+    --secondary-foreground: 240 6% 10%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 220 8.9% 46.1%;
+    --accent: 240 5% 92%;
+    --accent-foreground: 240 6% 10%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --link: 246 40% 50%;
+    --link: 240 6% 20%;
 
-    /* Status chips: a tinted ground with a saturated foreground. Used small. */
-    --light-green: oklch(95% 0.052 163.051 / 0.7);
-    --dark-green: oklch(59.6% 0.145 163.225);
-    --light-yellow: oklch(97.3% 0.071 103.193 / 0.7);
-    --dark-yellow: oklch(47.6% 0.114 61.907);
-    --light-red: oklch(93.6% 0.032 17.717 / 0.7);
-    --dark-red: oklch(63.7% 0.237 25.331);
-    --light-violet: 251 91% 95.5%;
-    --dark-violet: 262 72% 54%;
+    /* Status: subtle, quiet tinted inks */
+    --light-green: oklch(96% 0.04 160 / 0.8);
+    --dark-green: oklch(48% 0.12 160);
+    --light-yellow: oklch(96% 0.06 85 / 0.8);
+    --dark-yellow: oklch(48% 0.12 75);
+    --light-red: oklch(95% 0.04 25 / 0.8);
+    --dark-red: oklch(52% 0.18 25);
+    --light-violet: 240 5% 92%;
+    --dark-violet: 240 6% 30%;
 
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 70%;
-    --foreground-tertiary: 0 0% 40%;
+    --background: 240 6% 9%;
+    --foreground: 0 0% 93%;
+    --foreground-tertiary: 240 4% 50%;
 
-    --muted: 0 0% 11.6%;
-    --muted-foreground: 0 0% 54%;
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 4% 60%;
 
-    --card: 0 0% 7.5%;
-    --popover: 0 0% 12%;
-    --header: 0 0% 2%;
-    --surface-code: 0 0% 2.3%;
+    --card: 240 5% 12%;
+    --popover: 240 5% 12%;
+    --header: 240 6% 9%;
+    --surface-code: 240 6% 11%;
 
-    --border: 0 0% 15%;
-    --border-contrast: 0 0% 26%;
-    --input: 0 0% 18%;
-    --ring: 246 55% 70%;
+    --border: 240 5% 18%;
+    --border-contrast: 240 5% 26%;
+    --input: 240 5% 20%;
+    --ring: 0 0% 80%;
 
-    --primary: 0 0% 90%;
-    --primary-foreground: 0 0% 3.5%;
+    --primary: 0 0% 95%;
+    --primary-foreground: 240 6% 9%;
 
-    --secondary: 0 0% 11.6%;
-    --secondary-foreground: 0 0% 88%;
+    --secondary: 240 5% 16%;
+    --secondary-foreground: 0 0% 90%;
 
-    --accent: 0 0% 18%;
-    --accent-foreground: 0 0% 91%;
+    --accent: 240 5% 18%;
+    --accent-foreground: 0 0% 95%;
 
-    --destructive: 0 78.7% 63.1%;
+    --destructive: 0 68% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --link: 246 55% 70%;
+    --link: 0 0% 85%;
 
-    --light-green: oklch(37.8% 0.077 168.94 / 0.7);
-    --dark-green: oklch(76.5% 0.177 163.223);
-    --light-yellow: oklch(55.4% 0.135 66.442 / 0.4);
-    --dark-yellow: oklch(79.5% 0.184 86.047);
-    --light-red: oklch(39.6% 0.141 25.723 / 0.7);
-    --dark-red: oklch(57.7% 0.245 27.325);
-    --light-violet: 258 40% 16%;
-    --dark-violet: 255 92% 76%;
+    --light-green: oklch(28% 0.06 160 / 0.7);
+    --dark-green: oklch(76% 0.14 160);
+    --light-yellow: oklch(34% 0.08 85 / 0.6);
+    --dark-yellow: oklch(80% 0.14 85);
+    --light-red: oklch(32% 0.1 25 / 0.7);
+    --dark-red: oklch(70% 0.18 25);
+    --light-violet: 240 5% 20%;
+    --dark-violet: 240 5% 75%;
   }
 
   * {
@@ -109,11 +101,7 @@
   }
 
   html {
-    /* Langfuse ships no webfont: the UI reads as native tooling, and there is
-       no render-blocking request on a page whose whole point is being fast. */
-    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-      'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji',
-      'Segoe UI Emoji';
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
 
   body {
@@ -126,7 +114,7 @@
   }
 
   ::selection {
-    background-color: hsl(var(--ring) / 0.3);
+    background-color: hsl(var(--foreground) / 0.15);
   }
 
   :focus-visible {
@@ -136,7 +124,6 @@
 }
 
 @layer components {
-  /* The rule that separates every region. Hairline, never a shadow. */
   .hairline-t {
     border-top: 1px solid hsl(var(--border));
   }
@@ -144,15 +131,14 @@
     border-bottom: 1px solid hsl(var(--border));
   }
 
-  /* Small tinted status chip — the only place saturated color is allowed. */
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-xs;
+    @apply inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-normal;
   }
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {

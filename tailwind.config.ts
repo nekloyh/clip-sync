@@ -57,18 +57,20 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
-      // Langfuse's scale, verbatim. It tops out at 1.5rem — a heading is
-      // distinguished by weight and color, not by being large.
-      fontSize: {
-        xs: ["0.7rem", { lineHeight: "1.1rem" }],
-        sm: ["0.825rem", { lineHeight: "1.25rem" }],
-        base: ["0.9rem", { lineHeight: "1.4rem" }],
-        lg: ["1.1rem", { lineHeight: "1.6rem" }],
-        xl: ["1.2rem", { lineHeight: "1.7rem" }],
-        "2xl": ["1.3rem", { lineHeight: "1.8rem" }],
-        "3xl": ["1.5rem", { lineHeight: "2rem" }],
+      boxShadow: {
+        xs: "0 1px 2px 0 rgba(0, 0, 0, 0.04)",
+        sm: "0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06)",
+        card: "0 2px 8px -2px rgba(0, 0, 0, 0.08), 0 1px 3px -1px rgba(0, 0, 0, 0.04)",
       },
-      // 600 is the heaviest weight in the system. There is no bold.
+      fontSize: {
+        xs: ["0.75rem", { lineHeight: "1.15rem" }],
+        sm: ["0.875rem", { lineHeight: "1.35rem" }],
+        base: ["0.9375rem", { lineHeight: "1.5rem" }],
+        lg: ["1.125rem", { lineHeight: "1.65rem" }],
+        xl: ["1.25rem", { lineHeight: "1.75rem" }],
+        "2xl": ["1.5rem", { lineHeight: "2rem" }],
+        "3xl": ["1.875rem", { lineHeight: "2.25rem" }],
+      },
       fontWeight: {
         normal: "400",
         medium: "500",
@@ -76,11 +78,12 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
-          "ui-sans-serif",
-          "system-ui",
           "-apple-system",
+          "BlinkMacSystemFont",
           "Segoe UI",
           "Roboto",
+          "Helvetica",
+          "Arial",
           "sans-serif",
         ],
         mono: [
@@ -89,8 +92,6 @@ const config: Config = {
           "Menlo",
           "Monaco",
           "Consolas",
-          "Liberation Mono",
-          "Courier New",
           "monospace",
         ],
       },

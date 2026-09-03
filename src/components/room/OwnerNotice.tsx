@@ -22,26 +22,24 @@ export function OwnerNotice() {
   if (dismissed) return null;
 
   return (
-    <div className="hairline-b flex items-start gap-2.5 bg-header px-3 py-2 sm:px-4">
-      <KeyRound
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--dark-yellow)]"
-        strokeWidth={1.75}
-        aria-hidden
-      />
-      <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">Bạn là chủ phòng này.</span> Quyền đặt PIN
-        và xóa phòng gắn với trình duyệt hiện tại, không phải tài khoản. Xóa cookie, đổi máy hay
-        mở link ở cửa sổ ẩn danh sẽ khiến bạn thành cộng tác viên và{' '}
-        <span className="text-foreground">không lấy lại được</span>. Phòng vẫn tự xóa sau 7 ngày.
-      </p>
+    <aside
+      aria-label="Thông báo quyền chủ phòng"
+      className="hairline-b flex items-center justify-between gap-3 bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <KeyRound className="h-3.5 w-3.5 shrink-0 text-foreground" />
+        <p className="min-w-0 flex-1 leading-normal">
+          <span className="font-medium text-foreground">Bạn là chủ phòng.</span> Quyền đổi PIN và xóa phòng lưu trên trình duyệt này. Phòng tự xóa sau 7 ngày không hoạt động.
+        </p>
+      </div>
       <button
         onClick={() => setDismissed(true)}
-        className="-m-1 shrink-0 rounded-sm p-1 text-foreground-tertiary transition-colors hover:bg-muted hover:text-foreground"
-        title="Đã hiểu"
-        aria-label="Đóng thông báo"
+        className="shrink-0 rounded p-1 text-foreground-tertiary hover:bg-muted hover:text-foreground transition-colors"
+        title="Đóng"
+        aria-label="Đóng"
       >
         <X className="h-3.5 w-3.5" />
       </button>
-    </div>
+    </aside>
   );
 }

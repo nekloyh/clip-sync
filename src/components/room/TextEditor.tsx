@@ -608,6 +608,47 @@ export function TextEditor({
     }
   };
 
+  const [fontMode, setFontMode] = useState<'sans' | 'mono'>('sans');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('clipsync-font-mode');
+      if (saved === 'mono' || saved === 'sans') setFontMode(saved);
+    } catch {
+      // Ignore private browsing restrictions
+    }
+  }, []);
+
+  const toggleFontMode = () => {
+    const next = fontMode === 'sans' ? 'mono' : 'sans';
+    setFontMode(next);
+    try {
+      localStorage.setItem('clipsync-font-mode', next);
+    } catch {
+      // Ignore private browsing restrictions
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    for (const file of files) {
+      if (attachments.length + pendingUploads.length >= 20) {
+        showToast('Phòng đã đạt giới hạn tối đa 20 ảnh đính kèm', 'error');
+        break;
+      }
+      void uploadFile(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleClearContent = () => {
+    if (!content) return;
+    if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ văn bản trong phòng này?')) return;
+    handleTextChange({ target: { value: '' } } as React.ChangeEvent<HTMLTextAreaElement>);
+    showToast('Đã xóa trắng văn bản', 'info');
+  };
+
   const lineCount = content ? content.split('\n').length : 1;
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
 
@@ -619,10 +660,24 @@ export function TextEditor({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Hidden file picker input for direct button click */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={handleFileInputChange}
+        className="hidden"
+        aria-hidden
+      />
+
       <EditorHeader
         slug={slug}
         hasPin={hasPin}
         canManage={capabilities.canManage}
+        fontMode={fontMode}
+        onToggleFontMode={toggleFontMode}
+        onUploadImage={() => fileInputRef.current?.click()}
         onCopyAllText={handleCopyAllText}
         onOpenPinModal={() => setPinModalOpen(true)}
         onDeleteRoom={handleDeleteRoom}
@@ -631,19 +686,19 @@ export function TextEditor({
       {/* Only for the creator, and only on the load that follows creation. */}
       {justCreated && capabilities.canManage && <OwnerNotice />}
 
-      {/* Chrome (header + rail) sits on the darkest surface and the buffer on
-          the lighter page ground, so the writing area reads as lit and framed
-          rather than as one more panel. */}
+      {/* Main text surface */}
       <main className="relative flex flex-1 flex-col overflow-hidden bg-background">
         <textarea
           ref={textareaRef}
           value={content}
           onChange={handleTextChange}
           onPaste={handlePaste}
-          placeholder="Dán hoặc gõ ở đây. Mở cùng URL trên thiết bị khác để thấy nội dung."
+          placeholder="Dán hoặc gõ văn bản ở đây. Mở cùng liên kết trên thiết bị khác để xem trực tiếp. Dán ảnh (Ctrl+V) hoặc kéo thả để đính kèm."
           spellCheck={false}
           aria-label="Nội dung phòng"
-          className="w-full flex-1 resize-none overflow-y-auto bg-transparent p-4 font-mono text-sm leading-relaxed text-foreground placeholder:text-foreground-tertiary focus:outline-none sm:p-6"
+          className={`w-full flex-1 resize-none overflow-y-auto bg-transparent p-4 sm:p-6 lg:p-8 leading-relaxed text-foreground placeholder:text-foreground-tertiary focus:outline-none ${
+            fontMode === 'mono' ? 'font-mono text-xs sm:text-sm' : 'font-sans text-sm sm:text-base'
+          }`}
         />
 
         <StatusRail
@@ -668,13 +723,11 @@ export function TextEditor({
         onDismissUpload={dismissUpload}
       />
 
+      {/* Drag & Drop subtle overlay */}
       {isDragging && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex animate-fade-in flex-col items-center justify-center bg-background/95 p-6 text-center">
-          <div className="rounded-lg border border-dashed border-border-contrast px-8 py-7">
-            <UploadCloud
-              className="mx-auto mb-3 h-6 w-6 text-foreground-tertiary"
-              strokeWidth={1.75}
-            />
+        <div className="pointer-events-none absolute inset-0 z-50 flex animate-fade-in flex-col items-center justify-center bg-background/90 p-6 text-center">
+          <div className="rounded-lg border border-dashed border-border-contrast px-8 py-6">
+            <UploadCloud className="mx-auto mb-2 h-6 w-6 text-foreground-tertiary" strokeWidth={1.5} />
             <p className="text-sm font-medium text-foreground">Thả ảnh để đính kèm</p>
             <p className="mt-1 font-mono text-xs text-foreground-tertiary">PNG, JPEG, WebP · ≤ 5MB</p>
           </div>

@@ -15,23 +15,31 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-lg border border-border bg-card">
-        <div className="hairline-b bg-header px-4 py-3">
-          <h1 className="text-sm font-semibold text-foreground">Không tải được trang</h1>
+    <div className="flex min-h-screen items-center justify-center p-4 bg-background">
+      <div className="w-full max-w-sm animate-slide-up overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+        <div className="hairline-b bg-header px-5 py-4">
+          <h1 className="text-base font-semibold text-foreground">Không tải được trang</h1>
         </div>
-        <div className="p-4">
-          <p className="text-sm text-muted-foreground">
-            Máy chủ không trả về nội dung. Thử lại; nếu vẫn lỗi, kiểm tra biến môi trường Supabase.
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Hệ thống không thể kết nối hoặc tải dữ liệu phòng. Bạn vui lòng thử lại; nếu vẫn gặp sự cố, hãy kiểm tra lại kết nối mạng hoặc biến môi trường Supabase.
           </p>
           {error.digest && (
-            <p className="mt-3 font-mono text-xs text-foreground-tertiary">
-              digest {error.digest}
+            <p className="rounded-lg bg-muted/60 p-2 font-mono text-[11px] text-foreground-tertiary">
+              Mã lỗi: {error.digest}
             </p>
           )}
-          <Button variant="primary" size="lg" onClick={reset} className="mt-4 w-full">
-            Thử lại
-          </Button>
+          <div className="space-y-2 pt-2">
+            <Button variant="primary" size="md" onClick={reset} className="w-full">
+              Thử lại
+            </Button>
+            <a
+              href="/"
+              className="inline-flex h-9 w-full items-center justify-center rounded-xl border border-border bg-card text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Về trang chủ
+            </a>
+          </div>
         </div>
       </div>
     </div>

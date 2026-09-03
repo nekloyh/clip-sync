@@ -50,39 +50,40 @@ export default function NotFound() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-sm overflow-hidden rounded-lg border border-border bg-card">
-        <div className="hairline-b flex items-center justify-between bg-header px-4 py-3">
-          <h1 className="text-sm font-semibold text-foreground">Không tìm thấy</h1>
-          <span className="font-mono text-xs text-foreground-tertiary">404</span>
+    <div className="flex min-h-screen items-center justify-center p-4 bg-background">
+      <div className="w-full max-w-md animate-slide-up overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+        <div className="hairline-b flex items-center justify-between bg-header px-5 py-4">
+          <h1 className="text-base font-semibold text-foreground">Không tìm thấy phòng</h1>
+          <span className="font-mono text-xs rounded-full bg-muted/80 px-2.5 py-0.5 text-foreground-tertiary">
+            404
+          </span>
         </div>
 
-        <div className="p-4">
-          <p className="text-sm text-muted-foreground">
-            Đường dẫn này không tồn tại. Nếu bạn đang mở một phòng, thường là vì:
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Đường dẫn phòng này hiện không tồn tại trên hệ thống. Điều này thường do một trong các lý do sau:
           </p>
 
-          <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-            <li className="flex gap-2">
-              <span className="text-foreground-tertiary">·</span>
-              Phòng đã quá 7 ngày không ai dùng và bị tự động xóa.
+          <ul className="space-y-2 rounded-xl bg-muted/30 p-3.5 text-xs text-muted-foreground">
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+              <span>Phòng đã quá 7 ngày không có ai sử dụng và đã tự động dọn dẹp để bảo vệ quyền riêng tư.</span>
             </li>
-            <li className="flex gap-2">
-              <span className="text-foreground-tertiary">·</span>
-              Chủ phòng đã chủ động xóa phòng.
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+              <span>Chủ phòng đã chủ động xóa phòng trước đó.</span>
             </li>
-            <li className="flex gap-2">
-              <span className="text-foreground-tertiary">·</span>
-              Mã phòng bị gõ sai một vài ký tự.
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
+              <span>Mã phòng có thể bị gõ thiếu hoặc nhầm một vài ký tự.</span>
             </li>
           </ul>
 
-          <p className="mt-3 text-sm text-muted-foreground">
-            Nội dung của phòng đã xóa không khôi phục được. Nếu ai đó gửi link cho bạn, hãy hỏi
-            lại họ một link mới.
+          <p className="text-xs text-foreground-tertiary leading-relaxed">
+            Nội dung đã xóa không thể khôi phục. Nếu người khác gửi cho bạn liên kết này, vui lòng yêu cầu họ tạo và gửi một mã phòng mới.
           </p>
 
-          <div className="mt-4 space-y-2">
+          <div className="pt-2 space-y-2.5">
             <Button
               variant="primary"
               size="lg"
@@ -92,26 +93,26 @@ export default function NotFound() {
             >
               {creating ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Đang tạo phòng
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Đang tạo phòng mới…
                 </>
               ) : (
                 <>
-                  Tạo phòng mới
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  Tạo phòng mới ngay
+                  <ArrowRight className="h-4 w-4 ml-1" />
                 </>
               )}
             </Button>
 
             <Link
               href="/"
-              className="inline-flex h-9 w-full items-center justify-center rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-border bg-card text-xs font-medium text-foreground transition-colors hover:bg-muted"
             >
-              Về trang chủ
+              Quay về trang chủ
             </Link>
 
             {error && (
-              <p role="status" className="text-xs text-[var(--dark-red)]">
+              <p role="status" className="text-center text-xs font-medium text-[var(--dark-red)] pt-1">
                 {error}
               </p>
             )}

@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ showToast }}>
       {children}
       <div
-        className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-xs flex-col gap-2"
+        className="pointer-events-none fixed bottom-5 right-5 z-50 flex w-full max-w-sm flex-col gap-2.5 sm:bottom-6 sm:right-6"
         role="status"
         aria-live="polite"
       >
@@ -48,18 +48,20 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           return (
             <div
               key={toast.id}
-              className="pointer-events-auto flex animate-slide-up items-start justify-between gap-2 rounded-md border border-border bg-popover px-3 py-2"
+              className="pointer-events-auto flex animate-slide-up items-center justify-between gap-3 rounded-xl border border-border/80 bg-card/95 backdrop-blur-md px-4 py-3 shadow-card transition-all"
             >
-              <div className="flex min-w-0 items-start gap-2">
-                <Icon className={`mt-px h-3.5 w-3.5 shrink-0 ${color}`} />
-                <span className="text-sm text-foreground">{toast.message}</span>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex shrink-0 items-center justify-center">
+                  <Icon className={`h-4 w-4 shrink-0 ${color}`} />
+                </div>
+                <span className="text-sm font-medium text-foreground leading-snug">{toast.message}</span>
               </div>
               <button
                 onClick={() => removeToast(toast.id)}
-                className="shrink-0 rounded-sm p-0.5 text-foreground-tertiary transition-colors hover:text-foreground"
+                className="shrink-0 rounded-md p-1 text-foreground-tertiary transition-colors hover:bg-muted hover:text-foreground"
                 aria-label="Đóng thông báo"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           );

@@ -1,11 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/cn';
 
-/**
- * Two offset squares — the same buffer held on two devices, the top one
- * catching the accent. Drawn rather than imported so it inherits currentColor
- * and stays crisp at 16px.
- */
 export function Wordmark({
   className,
   showText = true,
@@ -14,31 +9,40 @@ export function Wordmark({
   showText?: boolean;
 }) {
   return (
-    <span className={cn('inline-flex items-center gap-2', className)}>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <span className={cn('inline-flex items-center gap-2 select-none', className)}>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="text-foreground shrink-0"
+        aria-hidden
+      >
         <rect
-          x="0.75"
-          y="4.75"
+          x="1"
+          y="4.5"
           width="9.5"
-          height="9.5"
-          rx="1.75"
-          stroke="currentColor"
+          height="10"
+          rx="2"
+          className="stroke-current opacity-40"
           strokeWidth="1.5"
-          opacity="0.45"
         />
         <rect
-          x="5.75"
-          y="1.75"
+          x="5.5"
+          y="1.5"
           width="9.5"
-          height="9.5"
-          rx="1.75"
-          className="fill-background"
-          stroke="currentColor"
+          height="10"
+          rx="2"
+          className="fill-background stroke-current"
           strokeWidth="1.5"
         />
       </svg>
+
       {showText && (
-        <span className="text-sm font-semibold tracking-tight text-foreground">ClipSync</span>
+        <span className="text-sm font-semibold tracking-tight text-foreground">
+          ClipSync
+        </span>
       )}
     </span>
   );
